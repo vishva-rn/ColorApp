@@ -22,7 +22,7 @@ interface Props {
 
 export default function Onboarding1({ onNext }: Props) {
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-screen">
       {/* Header */}
       <View className="px-6 pt-4 pb-2">
         <Text className="text-base font-semibold text-gray-900">Onboarding1</Text>

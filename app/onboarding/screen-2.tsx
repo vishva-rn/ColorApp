@@ -24,7 +24,7 @@ export default function Onboarding2({ onNext }: Props) {
   const [selected, setSelected] = useState<GenderOption | null>(null);
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-screen">
       {/* Header */}
       <View className="px-6 pt-4 pb-2">
         <Text className="text-base font-semibold text-gray-900">Onboarding2</Text>
@@ -51,7 +51,7 @@ export default function Onboarding2({ onNext }: Props) {
             className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
               selected === 'Male'
                 ? 'bg-black border-black'
-                : 'bg-white border-gray-200'
+                : 'bg-screen border-gray-200'
             }`}
             activeOpacity={0.8}
           >
@@ -66,7 +66,7 @@ export default function Onboarding2({ onNext }: Props) {
             className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
               selected === 'Female'
                 ? 'bg-black border-black'
-                : 'bg-white border-gray-200'
+                : 'bg-screen border-gray-200'
             }`}
             activeOpacity={0.8}
           >
@@ -83,7 +83,7 @@ export default function Onboarding2({ onNext }: Props) {
             className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
               selected === 'Other'
                 ? 'bg-black border-black'
-                : 'bg-white border-gray-200'
+                : 'bg-screen border-gray-200'
             }`}
             activeOpacity={0.8}
           >
@@ -98,7 +98,7 @@ export default function Onboarding2({ onNext }: Props) {
             className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
               selected === "Don't want to say"
                 ? 'bg-black border-black'
-                : 'bg-white border-gray-200'
+                : 'bg-screen border-gray-200'
             }`}
             activeOpacity={0.8}
           >
