@@ -27,7 +27,7 @@ export default function RootLayout() {
     });
   }, []);
 
-  // Show no internet screen when offline (null = still checking, so we wait)
+  // Show no internet screen when offline
   if (isConnected === false) {
     return (
       <>
@@ -39,7 +39,9 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+      <Stack initialRouteName="index">
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
