@@ -33,13 +33,6 @@ import SelectedIconSvg from '../../assets/images/svgicons/selected.svg';
 const { width } = Dimensions.get('window');
 const CANVAS_SIZE = width - 48;
 
-const DRAWINGS: Record<string, React.FC<any>> = {
-  flowers: FlowersSvg,
-  animal: AnimalSvg,
-  cute: CuteSvg,
-  simple: SimpleSvg,
-};
-
 // Clip paths for each drawing - restrict drawing to within these shapes
 // These are SVG path data (d attribute) that define the boundary
 const CLIP_PATHS: Record<string, string> = {
@@ -122,13 +115,8 @@ export default function DrawingScreen() {
     }
   };
 
-  // Get the appropriate SVG and clip path based on selection
-  const SelectedSvg = (slug && DRAWINGS[slug]) || FlowersSvg;
+  // Get the appropriate clip path based on selection
   const selectedClipPath = (slug && CLIP_PATHS[slug]) || undefined;
-  
-  // Scale clip path to match canvas size if needed
-  // Note: The clip paths above are defined for a 300x300 canvas
-  // If your canvas size differs, you'll need to scale them
 
   return (
     <SafeAreaView className="flex-1 bg-[#F7F2EF]">
@@ -184,7 +172,7 @@ export default function DrawingScreen() {
               color={selectedColor}
               strokeWidth={brushSize}
               opacity={opacity}
-              BackgroundSvg={!pickedImage ? SelectedSvg : undefined}
+              BackgroundSvg={!pickedImage ? DummyDrawSvg : undefined}
               clipPath={selectedClipPath}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
@@ -244,14 +232,4 @@ export default function DrawingScreen() {
 
         {/* Save Button */}
         <View className="mt-8 px-6">
-          <TouchableOpacity 
-            onPress={handleSave}
-            className="bg-[#3A3A3A] h-16 rounded-[32px] items-center justify-center shadow-lg"
-          >
-            <Text className="text-white font-bold text-[18px]">Save Drawing</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
+          <TouchableOpa
