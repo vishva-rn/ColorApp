@@ -40,6 +40,19 @@ const DRAWINGS: Record<string, React.FC<any>> = {
   simple: SimpleSvg,
 };
 
+// Clip paths for each drawing - restrict drawing to within these shapes
+// These are SVG path data (d attribute) that define the boundary
+const CLIP_PATHS: Record<string, string> = {
+  // Example: Circle clip path for flowers
+  flowers: `M150,150 m-130,0 a130,130 0 1,0 260,0 a130,130 0 1,0 -260,0`,
+  // Example: Rounded rectangle for animal
+  animal: `M40,40 Q40,20 60,20 L240,20 Q260,20 260,40 L260,260 Q260,280 240,280 L60,280 Q40,280 40,260 Z`,
+  // Example: Star-like shape for cute
+  cute: `M150,30 L180,110 L270,110 L200,160 L230,250 L150,190 L70,250 L100,160 L30,110 L120,110 Z`,
+  // Example: Simple rounded shape
+  simple: `M80,40 L220,40 Q280,40 280,100 L280,200 Q280,260 220,260 L80,260 Q20,260 20,200 L20,100 Q20,40 80,40 Z`,
+};
+
 const BRUSHES = [
   { id: 'pencil', icon: PencileSvg, strokeWidth: 2 },
   { id: 'brush', icon: BrushSvg, strokeWidth: 8 },
@@ -109,7 +122,13 @@ export default function DrawingScreen() {
     }
   };
 
+  // Get the appropriate SVG and clip path based on selection
   const SelectedSvg = (slug && DRAWINGS[slug]) || FlowersSvg;
+  const selectedClipPath = (slug && CLIP_PATHS[slug]) || undefined;
+  
+  // Scale clip path to match canvas size if needed
+  // Note: The clip paths above are defined for a 300x300 canvas
+  // If your canvas size differs, you'll need to scale them
 
   return (
     <SafeAreaView className="flex-1 bg-[#F7F2EF]">
@@ -165,7 +184,8 @@ export default function DrawingScreen() {
               color={selectedColor}
               strokeWidth={brushSize}
               opacity={opacity}
-              BackgroundSvg={!pickedImage ? DummyDrawSvg : undefined}
+              BackgroundSvg={!pickedImage ? SelectedSvg : undefined}
+              clipPath={selectedClipPath}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
             />

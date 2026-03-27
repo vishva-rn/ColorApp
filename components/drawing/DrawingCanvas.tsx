@@ -6,13 +6,14 @@
  * - Undo / Redo
  * - Clear canvas
  * - Optional background image (SVG outline for coloring)
+ * - Optional clipPath to restrict drawing to a specific shape
  * - Save to gallery via react-native-view-shot
  */
 
 import React, { useRef, useState, useCallback } from 'react';
 import { View, PanResponder, Dimensions, GestureResponderEvent, ImageSourcePropType } from 'react-native';
 import { Image } from 'expo-image';
-import Svg, { Path, G } from 'react-native-svg';
+import Svg, { Path, G, Defs, ClipPath as ClipPathDef } from 'react-native-svg';
 import ViewShot from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
@@ -39,6 +40,8 @@ interface DrawingCanvasProps {
   BackgroundSvg?: React.FC<{ width: number; height: number }>;
   /** Background image source (PNG/JPG outline for coloring) */
   backgroundImage?: ImageSourcePropType;
+  /** SVG path data string (d attribute) to restrict drawing area. Only paths inside this shape will be visible. */
+  clipPath?: string;
   /** Callback when paths change */
   onPathsChange?: (paths: DrawingPath[]) => void;
   /** Ref to expose canvas methods */
@@ -60,6 +63,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   opacity = 1,
   BackgroundSvg,
   backgroundImage,
+  clipPath,
   onPathsChange,
   canvasRef,
 }) => {
@@ -188,7 +192,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         {...panResponder.panHandlers}
         style={{ width: canvasSize, height: canvasSize, position: 'relative' }}
       >
-       
+        {/* Background image (for uploaded images) */}
+        {backgroundImage && (
+          <Image
+            source={backgroundImage}
+            style={{
+              width: canvasSize,
+              height: canvasSize,
+              position: 'absolute',
+              top: 0,
+              left: 0,
+            }}
+            contentFit="contain"
+          />
+        )}
 
         <Svg
           width={canvasSize}
@@ -196,6 +213,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           viewBox={`0 0 ${canvasSize} ${canvasSize}`}
           style={{ position: 'absolute', top: 0, left: 0 }}
         >
+          <Defs>
+            {/* Clip path definition - if provided, drawing will be restricted to this shape */}
+            {clipPath && (
+              <ClipPathDef id="drawingClip">
+                <Path d={clipPath} />
+              </ClipPathDef>
+            )}
+          </Defs>
+
           {/* Background SVG outline */}
           {BackgroundSvg && (
             <G opacity={0.3}>
@@ -203,32 +229,34 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             </G>
           )}
 
-          {/* Completed paths */}
-          {paths.map((p, i) => (
-            <Path
-              key={i}
-              d={p.d}
-              stroke={p.color}
-              strokeWidth={p.strokeWidth}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-              opacity={p.opacity}
-            />
-          ))}
+          {/* Completed paths - clipped if clipPath is provided */}
+          <G clipPath={clipPath ? 'url(#drawingClip)' : undefined}>
+            {paths.map((p, i) => (
+              <Path
+                key={i}
+                d={p.d}
+                stroke={p.color}
+                strokeWidth={p.strokeWidth}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+                opacity={p.opacity}
+              />
+            ))}
 
-          {/* Current drawing path */}
-          {currentDrawing && (
-            <Path
-              d={currentDrawing.d}
-              stroke={currentDrawing.color}
-              strokeWidth={currentDrawing.strokeWidth}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-              opacity={currentDrawing.opacity}
-            />
-          )}
+            {/* Current drawing path */}
+            {currentDrawing && (
+              <Path
+                d={currentDrawing.d}
+                stroke={currentDrawing.color}
+                strokeWidth={currentDrawing.strokeWidth}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+                opacity={currentDrawing.opacity}
+              />
+            )}
+          </G>
         </Svg>
       </View>
     </ViewShot>
