@@ -1,129 +1,67 @@
 /**
  * Onboarding Screen 2
- * Gender selection screen with options and next arrow button
+ * Gender selection screen refactored with reusable components
  */
 
 import React, { useState } from 'react';
 import {
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+
+// Reusable Components
+import { OnboardingHeader } from '../../components/onboarding/OnboardingHeader';
+import { OnboardingNextButton } from '../../components/onboarding/OnboardingNextButton';
+import { SelectionOption } from '../../components/onboarding/SelectionOption';
 
 interface Props {
   onNext: () => void;
 }
 
-type GenderOption = 'Male' | 'Female' | 'Other' | "Don't want to say";
-
-const genderOptions: GenderOption[] = ['Male', 'Female', 'Other', "Don't want to say"];
+type GenderOption = 'Male' | 'Female' | 'Other' | "Don’t want to say";
 
 export default function Onboarding2({ onNext }: Props) {
-  const [selected, setSelected] = useState<GenderOption | null>(null);
+  const [selected, setSelected] = useState<GenderOption>('Male');
+
+  const options: GenderOption[] = ['Male', 'Female', 'Other', "Don’t want to say"];
 
   return (
     <SafeAreaView className="flex-1 bg-screen">
-      {/* Header */}
-      <View className="px-6 pt-4 pb-2">
-        <Text className="text-base font-semibold text-gray-900">Onboarding2</Text>
-      </View>
+      {/* Header with Progress and Quote Icon */}
+      <OnboardingHeader 
+        progress={0.5} 
+        onSkip={() => {/* Handle skip */}} 
+      />
 
-      {/* Quote decoration */}
-      <View className="px-6 pt-2">
-        <Text className="text-5xl text-gray-200 font-bold leading-none">"</Text>
-      </View>
-
-      {/* Title */}
-      <View className="px-6 mt-2">
-        <Text className="text-2xl font-bold text-gray-900 leading-8">
-          What's gender do you{'\n'}identify as? 🔥
+      {/* Main Content */}
+      <View className="px-7 mt-8">
+        <Text className="text-[#A0A0A0] font-poppins text-[14px] mb-2">
+          Choose what best describe you
+        </Text>
+        <Text
+          className="text-[33px] font-mersin-mediumitalic text-[#3A3A3A] leading-[42px]"
+        >
+          What’s gender do you identify as?🧍
         </Text>
       </View>
 
-      {/* Gender Options — 2x2 grid */}
-      <View className="px-6 mt-8">
-        <View className="flex-row gap-3 mb-3">
-          {/* Male */}
-          <TouchableOpacity
-            onPress={() => setSelected('Male')}
-            className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
-              selected === 'Male'
-                ? 'bg-black border-black'
-                : 'bg-screen border-gray-200'
-            }`}
-            activeOpacity={0.8}
-          >
-            <Text className={`text-base font-semibold ${selected === 'Male' ? 'text-white' : 'text-gray-800'}`}>
-              Male
-            </Text>
-          </TouchableOpacity>
-
-          {/* Female */}
-          <TouchableOpacity
-            onPress={() => setSelected('Female')}
-            className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
-              selected === 'Female'
-                ? 'bg-black border-black'
-                : 'bg-screen border-gray-200'
-            }`}
-            activeOpacity={0.8}
-          >
-            <Text className={`text-base font-semibold ${selected === 'Female' ? 'text-white' : 'text-gray-800'}`}>
-              Female
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View className="flex-row gap-3">
-          {/* Other */}
-          <TouchableOpacity
-            onPress={() => setSelected('Other')}
-            className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
-              selected === 'Other'
-                ? 'bg-black border-black'
-                : 'bg-screen border-gray-200'
-            }`}
-            activeOpacity={0.8}
-          >
-            <Text className={`text-base font-semibold ${selected === 'Other' ? 'text-white' : 'text-gray-800'}`}>
-              Other
-            </Text>
-          </TouchableOpacity>
-
-          {/* Don't want to say */}
-          <TouchableOpacity
-            onPress={() => setSelected("Don't want to say")}
-            className={`flex-1 py-4 rounded-2xl items-center justify-center border ${
-              selected === "Don't want to say"
-                ? 'bg-black border-black'
-                : 'bg-screen border-gray-200'
-            }`}
-            activeOpacity={0.8}
-          >
-            <Text
-              className={`text-sm font-semibold text-center ${
-                selected === "Don't want to say" ? 'text-white' : 'text-gray-800'
-              }`}
-            >
-              Don't want{'\n'}to say
-            </Text>
-          </TouchableOpacity>
-        </View>
+      {/* Grid Selection */}
+      <View className="flex-row flex-wrap px-4 mt-8 justify-between">
+        {options.map((option) => (
+          <SelectionOption
+            key={option}
+            label={option}
+            isSelected={selected === option}
+            onPress={() => setSelected(option)}
+          />
+        ))}
       </View>
 
-      {/* Next Button — bottom right */}
       <View className="flex-1" />
-      <View className="px-6 pb-10 items-end">
-        <TouchableOpacity
-          onPress={onNext}
-          className="w-14 h-14 rounded-full bg-black items-center justify-center shadow-lg"
-          activeOpacity={0.8}
-        >
-          <Ionicons name="arrow-forward" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+
+      {/* Footer Next Button */}
+      <OnboardingNextButton onPress={onNext} />
     </SafeAreaView>
   );
 }

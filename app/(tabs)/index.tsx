@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Platform, StyleSheet } from 'react-native';
 
 import { HelloWave } from '@/components/hello-wave';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
@@ -10,68 +10,35 @@ import { Link } from 'expo-router';
 export default function HomeScreen() {
   return (
     <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
+      headerBackgroundColor={{ light: '#F7F2EF', dark: '#1D3D47' }}
       headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
+        <View className="flex-1 items-center justify-center bg-[#F7F2EF]">
+           <ThemedText type="title" className="font-mersin-bolditalic text-[#3A3A3A]">ColorApp</ThemedText>
+        </View>
       }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
+      <ThemedView className="items-center py-10">
+        <ThemedText type="subtitle" className="mb-6 font-poppins text-[#A0A0A0]">
+          Unleash your creativity
         </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+        
+        <View className="flex-row gap-4 mb-6">
+          <Link href="/drawing" asChild>
+            <TouchableOpacity className="bg-[#3A3A3A] px-10 py-5 rounded-[32px] shadow-lg active:opacity-80">
+              <Text className="text-white font-poppins-bold text-[16px]">Start Drawing</Text>
+            </TouchableOpacity>
+          </Link>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
+          <Link href="/drawing/selection" asChild>
+            <TouchableOpacity className="bg-[#FBBF24] px-10 py-5 rounded-[32px] shadow-lg active:opacity-80">
+              <Text className="text-[#3A3A3A] font-poppins-bold text-[16px]">Kids Mode 🎨</Text>
+            </TouchableOpacity>
+          </Link>
+        </View>
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
+
+      <ThemedView className="px-6 gap-4">
+        <ThemedText className="font-poppins text-[#3A3A3A] text-center">
+          Experience the joy of coloring with our premium tools and beautiful designs.
         </ThemedText>
       </ThemedView>
     </ParallaxScrollView>
