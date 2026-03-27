@@ -14,8 +14,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import DrawingCanvas, { DrawingCanvasHandle } from '@/components/drawing/DrawingCanvas';
 
-// Dummy draw background image
-const DUMMY_DRAW_IMAGE = require('../../assets/images/dummydraw.png');
+// Dummy draw background SVG
+import DummyDrawSvg from '../../assets/images/dummydraw.svg';
 
 // SVG Icons
 import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
@@ -165,7 +165,7 @@ export default function DrawingScreen() {
               color={selectedColor}
               strokeWidth={brushSize}
               opacity={opacity}
-              backgroundImage={!pickedImage ? DUMMY_DRAW_IMAGE : undefined}
+              BackgroundSvg={!pickedImage ? DummyDrawSvg : undefined}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
             />
