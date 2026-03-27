@@ -13,9 +13,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import DrawingCanvas, { DrawingCanvasHandle } from '@/components/drawing/DrawingCanvas';
-
-// Dummy draw background SVG
-import DummyDrawSvg from '../../assets/images/dummydraw.svg';
+import { DUMMY_DRAW_PATH_DATA, DUMMY_DRAW_VIEWBOX, DUMMY_DRAW_SILHOUETTE } from '@/components/drawing/dummyDrawPathData';
 
 // SVG Icons
 import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
@@ -38,15 +36,6 @@ const DRAWINGS: Record<string, React.FC<any>> = {
   animal: AnimalSvg,
   cute: CuteSvg,
   simple: SimpleSvg,
-};
-
-// Clip paths for each drawing - restrict drawing to within these shapes
-// These are SVG path data (d attribute) that define the boundary
-const CLIP_PATHS: Record<string, string> = {
-  flowers: `M150,150 m-130,0 a130,130 0 1,0 260,0 a130,130 0 1,0 -260,0`,
-  animal: `M40,40 Q40,20 60,20 L240,20 Q260,20 260,40 L260,260 Q260,280 240,280 L60,280 Q40,280 40,260 Z`,
-  cute: `M150,30 L180,110 L270,110 L200,160 L230,250 L150,190 L70,250 L100,160 L30,110 L120,110 Z`,
-  simple: `M80,40 L220,40 Q280,40 280,100 L280,200 Q280,260 220,260 L80,260 Q20,260 20,200 L20,100 Q20,40 80,40 Z`,
 };
 
 const BRUSHES = [
@@ -118,10 +107,6 @@ export default function DrawingScreen() {
     }
   };
 
-  // Get the appropriate SVG and clip path based on selection
-  const SelectedSvg = (slug && DRAWINGS[slug]) || FlowersSvg;
-  const selectedClipPath = (slug && CLIP_PATHS[slug]) || undefined;
-
   return (
     <SafeAreaView className="flex-1 bg-[#F7F2EF]">
       {/* Header */}
@@ -176,8 +161,8 @@ export default function DrawingScreen() {
               color={selectedColor}
               strokeWidth={brushSize}
               opacity={opacity}
-              BackgroundSvg={!pickedImage ? SelectedSvg : undefined}
-              clipPath={selectedClipPath}
+              outlinePathData={!pickedImage ? DUMMY_DRAW_PATH_DATA : undefined}
+              outlineViewBox={!pickedImage ? DUMMY_DRAW_VIEWBOX : undefined}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
             />

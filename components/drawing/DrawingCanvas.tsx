@@ -5,15 +5,15 @@
  * - Freehand drawing with configurable brush size, color, opacity
  * - Undo / Redo
  * - Clear canvas
- * - Optional background image (SVG outline for coloring)
- * - Optional clipPath to restrict drawing to a specific shape
+ * - Optional background outline (rendered from raw SVG path data)
+ * - Optional clipPath to restrict drawing to within the outline shape
  * - Save to gallery via react-native-view-shot
  */
 
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import { View, PanResponder, Dimensions, GestureResponderEvent, ImageSourcePropType } from 'react-native';
 import { Image } from 'expo-image';
-import Svg, { Path, G, Defs, ClipPath as ClipPathDef } from 'react-native-svg';
+import Svg, { Path, G } from 'react-native-svg';
 import ViewShot from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
@@ -28,7 +28,7 @@ export interface DrawingPath {
 }
 
 interface DrawingCanvasProps {
-  /** Canvas width (default: screen width - 48) */
+  /** Canvas width & height (default: screen width - 48) */
   canvasSize?: number;
   /** Current brush color */
   color?: string;
@@ -36,12 +36,14 @@ interface DrawingCanvasProps {
   strokeWidth?: number;
   /** Current brush opacity (0-1) */
   opacity?: number;
-  /** Background SVG component to color over */
+  /** Background SVG component (legacy, prefer outlinePathData) */
   BackgroundSvg?: React.FC<{ width: number; height: number }>;
-  /** Background image source (PNG/JPG outline for coloring) */
+  /** Background image source (PNG/JPG) */
   backgroundImage?: ImageSourcePropType;
-  /** SVG path data string (d attribute) to restrict drawing area. Only paths inside this shape will be visible. */
-  clipPath?: string;
+  /** Raw SVG path 'd' attribute for the outline shape */
+  outlinePathData?: string;
+  /** Original viewBox of the outline SVG, e.g. { width: 141, height: 440 } */
+  outlineViewBox?: { width: number; height: number };
   /** Callback when paths change */
   onPathsChange?: (paths: DrawingPath[]) => void;
   /** Ref to expose canvas methods */
@@ -63,7 +65,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   opacity = 1,
   BackgroundSvg,
   backgroundImage,
-  clipPath,
+  outlinePathData,
+  outlineViewBox,
   onPathsChange,
   canvasRef,
 }) => {
@@ -72,6 +75,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const currentPath = useRef<string>('');
   const [currentDrawing, setCurrentDrawing] = useState<DrawingPath | null>(null);
   const viewShotRef = useRef<ViewShot>(null);
+
+  // Compute the transform to fit the outline SVG into the square canvas
+  // Mimics SVG preserveAspectRatio="xMidYMid meet"
+  const outlineTransform = useMemo(() => {
+    if (!outlinePathData || !outlineViewBox) return null;
+    const { width: svgW, height: svgH } = outlineViewBox;
+    const scale = Math.min(canvasSize / svgW, canvasSize / svgH);
+    const offsetX = (canvasSize - svgW * scale) / 2;
+    const offsetY = (canvasSize - svgH * scale) / 2;
+    return `translate(${offsetX}, ${offsetY}) scale(${scale})`;
+  }, [outlinePathData, outlineViewBox, canvasSize]);
 
   const getPoint = (e: GestureResponderEvent) => {
     const { locationX, locationY } = e.nativeEvent;
@@ -152,7 +166,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       if (!viewShotRef.current?.capture) return null;
       const uri = await viewShotRef.current.capture();
       
-      // Copy to a permanent location before saving to media library
       const fileName = `coloring_${Date.now()}.png`;
       const destUri = `${FileSystem.cacheDirectory}${fileName}`;
       await FileSystem.copyAsync({ from: uri, to: destUri });
@@ -213,24 +226,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           viewBox={`0 0 ${canvasSize} ${canvasSize}`}
           style={{ position: 'absolute', top: 0, left: 0 }}
         >
-          <Defs>
-            {/* Clip path definition - if provided, drawing will be restricted to this shape */}
-            {clipPath && (
-              <ClipPathDef id="drawingClip">
-                <Path d={clipPath} />
-              </ClipPathDef>
-            )}
-          </Defs>
-
-          {/* Background SVG outline */}
-          {BackgroundSvg && (
-            <G opacity={0.3}>
-              <BackgroundSvg width={canvasSize} height={canvasSize} />
-            </G>
-          )}
-
-          {/* Completed paths - clipped if clipPath is provided */}
-          <G clipPath={clipPath ? 'url(#drawingClip)' : undefined}>
+          {/* 1. User's drawn strokes — underneath the outline */}
+          <G>
             {paths.map((p, i) => (
               <Path
                 key={i}
@@ -244,7 +241,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
               />
             ))}
 
-            {/* Current drawing path */}
             {currentDrawing && (
               <Path
                 d={currentDrawing.d}
@@ -257,6 +253,24 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
               />
             )}
           </G>
+
+          {/* 2. Detail outline — rendered ON TOP so lines are always visible above colors */}
+          {outlinePathData && outlineTransform && (
+            <G transform={outlineTransform}>
+              <Path
+                d={outlinePathData}
+                fill="#3A3A3A"
+                stroke="none"
+              />
+            </G>
+          )}
+
+          {/* Fallback: legacy BackgroundSvg component */}
+          {!outlinePathData && BackgroundSvg && (
+            <G>
+              <BackgroundSvg width={canvasSize} height={canvasSize} />
+            </G>
+          )}
         </Svg>
       </View>
     </ViewShot>
