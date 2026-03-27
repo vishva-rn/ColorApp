@@ -188,21 +188,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         {...panResponder.panHandlers}
         style={{ width: canvasSize, height: canvasSize, position: 'relative' }}
       >
-        {/* Background PNG/JPG outline image for coloring */}
-        {backgroundImage && (
-          <Image
-            source={backgroundImage}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: canvasSize,
-              height: canvasSize,
-              opacity: 0.3,
-            }}
-            contentFit="contain"
-          />
-        )}
+       
 
         <Svg
           width={canvasSize}
