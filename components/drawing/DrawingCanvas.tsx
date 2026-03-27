@@ -10,7 +10,8 @@
  */
 
 import React, { useRef, useState, useCallback } from 'react';
-import { View, PanResponder, Dimensions, GestureResponderEvent } from 'react-native';
+import { View, PanResponder, Dimensions, GestureResponderEvent, ImageSourcePropType } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path, G } from 'react-native-svg';
 import ViewShot from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
@@ -36,8 +37,8 @@ interface DrawingCanvasProps {
   opacity?: number;
   /** Background SVG component to color over */
   BackgroundSvg?: React.FC<{ width: number; height: number }>;
-  /** Background image URI (alternative to SVG) */
-  backgroundImage?: string;
+  /** Background image source (PNG/JPG outline for coloring) */
+  backgroundImage?: ImageSourcePropType;
   /** Callback when paths change */
   onPathsChange?: (paths: DrawingPath[]) => void;
   /** Ref to expose canvas methods */
@@ -185,9 +186,30 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     >
       <View
         {...panResponder.panHandlers}
-        style={{ width: canvasSize, height: canvasSize }}
+        style={{ width: canvasSize, height: canvasSize, position: 'relative' }}
       >
-        <Svg width={canvasSize} height={canvasSize} viewBox={`0 0 ${canvasSize} ${canvasSize}`}>
+        {/* Background PNG/JPG outline image for coloring */}
+        {backgroundImage && (
+          <Image
+            source={backgroundImage}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: canvasSize,
+              height: canvasSize,
+              opacity: 0.3,
+            }}
+            contentFit="contain"
+          />
+        )}
+
+        <Svg
+          width={canvasSize}
+          height={canvasSize}
+          viewBox={`0 0 ${canvasSize} ${canvasSize}`}
+          style={{ position: 'absolute', top: 0, left: 0 }}
+        >
           {/* Background SVG outline */}
           {BackgroundSvg && (
             <G opacity={0.3}>
