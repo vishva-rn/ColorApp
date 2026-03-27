@@ -59,6 +59,9 @@ PODS:
     - ExpoModulesCore
   - ExpoLogBox (55.0.7):
     - React-Core
+  - ExpoMediaLibrary (55.0.10):
+    - ExpoModulesCore
+    - React-Core
   - ExpoModulesCore (55.0.17):
     - ExpoModulesJSI
     - hermes-engine
@@ -1640,6 +1643,28 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-view-shot (4.0.3):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - React-NativeModulesApple (0.83.2):
     - hermes-engine
     - React-callinvoker
@@ -2313,6 +2338,7 @@ DEPENDENCIES:
   - ExpoKeepAwake (from `../node_modules/expo-keep-awake/ios`)
   - ExpoLinking (from `../node_modules/expo-linking/ios`)
   - "ExpoLogBox (from `../node_modules/@expo/log-box`)"
+  - ExpoMediaLibrary (from `../node_modules/expo-media-library/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - ExpoModulesJSI (from `../node_modules/expo-modules-core`)
   - ExpoRouter (from `../node_modules/expo-router/ios`)
@@ -2365,6 +2391,7 @@ DEPENDENCIES:
   - "react-native-clarity (from `../node_modules/@microsoft/react-native-clarity`)"
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - react-native-view-shot (from `../node_modules/react-native-view-shot`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
@@ -2451,6 +2478,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-linking/ios"
   ExpoLogBox:
     :path: "../node_modules/@expo/log-box"
+  ExpoMediaLibrary:
+    :path: "../node_modules/expo-media-library/ios"
   ExpoModulesCore:
     :path: "../node_modules/expo-modules-core"
   ExpoModulesJSI:
@@ -2554,6 +2583,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-community/netinfo"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-view-shot:
+    :path: "../node_modules/react-native-view-shot"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -2653,6 +2684,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: 7f3b28c361c37389b18841bb52a58003b39fcb33
   ExpoLinking: 65631933a0bedad33a592bfd2ab9fce0f14e5737
   ExpoLogBox: 89b634d5a8a64c4a6a7caad8f9985a28463c7002
+  ExpoMediaLibrary: 6448e3c4ec7f8ac74fa18c19494c299ee62c27b1
   ExpoModulesCore: 1c43431035ab7ea1492b0537bc4a60390480ea25
   ExpoModulesJSI: 7345645083e98be9c33c10027601aff2e445ba72
   ExpoRouter: 2bef44d037beb8ba5a325ec9e9ab870bc7dd96a9
@@ -2708,6 +2740,7 @@ SPEC CHECKSUMS:
   react-native-clarity: a5ed455e8ac25e746125aee0814285c7a7de2c67
   react-native-netinfo: 7e0b1936e928fa8ddb60da9e572a33767db7805f
   react-native-safe-area-context: 37e680fc4cace3c0030ee46e8987d24f5d3bdab2
+  react-native-view-shot: fb3c0774edb448f42705491802a455beac1502a2
   React-NativeModulesApple: f9fa097fc24cec967b77bfc05f72d2ea7db05b87
   React-networking: 29a9ae1a2e6ce8bb19174cc47110b36ae7ffcbcd
   React-oscompat: 856e980339052dc5a35980a498e24dd8480acf29
