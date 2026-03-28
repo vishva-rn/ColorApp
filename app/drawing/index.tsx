@@ -170,7 +170,8 @@ export default function DrawingScreen() {
               strokeWidth={brushSize}
               opacity={opacity}
               tool={tool}
-              svgUrl={!pickedImage ? 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_e9f6a295-f0db-4cc3-8cce-01aa887fcdf4.svg' : undefined}
+              outlinePaths={!pickedImage ? REMOTE_SVG_PATHS : undefined}
+              outlineViewBox={!pickedImage ? REMOTE_SVG_VIEWBOX : undefined}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
             />
