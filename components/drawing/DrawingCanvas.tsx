@@ -1,16 +1,17 @@
 /**
  * DrawingCanvas — Touch-based SVG drawing canvas for coloring apps.
  *
- * Approach: Render SVG from URL as background image using expo-image,
- * then overlay brush drawing and tap-to-fill on top.
+ * Fetches SVG from URL, fixes viewBox to fit actual content bounds,
+ * then renders via SvgXml with proper scaling.
  */
 
 import * as FileSystem from 'expo-file-system';
 import { Image } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, GestureResponderEvent, ImageSourcePropType, PanResponder, View } from 'react-native';
-import Svg, { G, Path, SvgUri } from 'react-native-svg';
+import { ActivityIndicator, Dimensions, GestureResponderEvent, ImageSourcePropType, PanResponder, View } from 'react-native';
+import Svg, { G, Path } from 'react-native-svg';
+import { SvgXml } from 'react-native-svg';
 import ViewShot from 'react-native-view-shot';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -40,7 +41,6 @@ interface DrawingCanvasProps {
   outlinePathData?: string;
   outlinePaths?: OutlinePath[];
   outlineViewBox?: { width: number; height: number };
-  /** Remote SVG URL — rendered via SvgUri */
   svgUrl?: string;
   onPathsChange?: (paths: DrawingPath[]) => void;
   canvasRef?: React.MutableRefObject<DrawingCanvasHandle | null>;
@@ -74,8 +74,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const currentPath = useRef<string>('');
   const [currentDrawing, setCurrentDrawing] = useState<DrawingPath | null>(null);
   const viewShotRef = useRef<ViewShot>(null);
+  const [svgXml, setSvgXml] = useState<string | null>(null);
+  const [svgLoading, setSvgLoading] = useState(false);
 
-  // Refs for latest values (avoid stale closures in PanResponder)
+  // Refs for latest values
   const colorRef = useRef(color);
   const strokeWidthRef = useRef(strokeWidth);
   const opacityRef = useRef(opacity);
@@ -87,6 +89,49 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   useEffect(() => { opacityRef.current = opacity; }, [opacity]);
   useEffect(() => { toolRef.current = tool; }, [tool]);
   useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
+
+  // Fetch SVG and fix it to render properly
+  useEffect(() => {
+    if (!svgUrl) return;
+    let cancelled = false;
+    setSvgLoading(true);
+    fetch(svgUrl)
+      .then(res => res.text())
+      .then(xml => {
+        if (cancelled) return;
+        let fixed = xml;
+        // Remove XML declaration and comments
+        fixed = fixed.replace(/<\?xml[^?]*\?>\s*/g, '');
+        fixed = fixed.replace(/<!--[\s\S]*?-->/g, '');
+        // Extract existing viewBox or create one
+        const vbMatch = fixed.match(/viewBox="([^"]*)"/);
+        const wMatch = fixed.match(/width="(\d+)"/);
+        const hMatch = fixed.match(/height="(\d+)"/);
+        const origW = wMatch ? parseInt(wMatch[1]) : 1024;
+        const origH = hMatch ? parseInt(hMatch[1]) : 1024;
+        // Wrap all content in a group that's visible
+        // The SVG content uses transforms like translate(566, 44) with negative path coords
+        // We need to set the viewBox to match the original SVG dimensions
+        // and let preserveAspectRatio handle the scaling
+        if (!vbMatch) {
+          fixed = fixed.replace('<svg', `<svg viewBox="0 0 ${origW} ${origH}"`);
+        }
+        // Set width/height to canvas size
+        fixed = fixed.replace(/width="[^"]*"/, `width="${canvasSize}"`);
+        fixed = fixed.replace(/height="[^"]*"/, `height="${canvasSize}"`);
+        // Ensure preserveAspectRatio
+        if (!fixed.includes('preserveAspectRatio')) {
+          fixed = fixed.replace('<svg', '<svg preserveAspectRatio="xMidYMid meet"');
+        }
+        setSvgXml(fixed);
+        setSvgLoading(false);
+      })
+      .catch(err => {
+        console.error('[DrawingCanvas] SVG fetch error:', err);
+        if (!cancelled) setSvgLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [svgUrl, canvasSize]);
 
   const segmentFills = useMemo(() => {
     const fills: Record<number, string> = {};
@@ -257,7 +302,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           />
         )}
 
-        {/* Color fills layer + Brush strokes (behind the SVG line art) */}
+        {/* Color fills + brush strokes (behind line art) */}
         <Svg
           width={canvasSize}
           height={canvasSize}
@@ -265,101 +310,63 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           style={{ position: 'absolute', top: 0, left: 0 }}
           pointerEvents="none"
         >
-          {/* Color fills from bucket tool */}
           {hasOutlinePaths && (
             <G transform={outlineTransform}>
               {outlinePaths!.map((path, index) => {
                 const userFill = segmentFills[index];
                 if (!userFill) return null;
                 return (
-                  <Path
-                    key={`fill-${index}`}
-                    d={path.d}
-                    transform={path.transform}
-                    fill={userFill}
-                    stroke="none"
-                  />
+                  <Path key={`fill-${index}`} d={path.d} transform={path.transform} fill={userFill} stroke="none" />
                 );
               })}
             </G>
           )}
-
-          {/* Brush strokes */}
           <G>
             {paths.map((p, i) => (
               p.type === 'stroke' && p.d ? (
-                <Path
-                  key={`stroke-${i}`}
-                  d={p.d}
-                  stroke={p.color}
-                  strokeWidth={p.strokeWidth}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                  opacity={p.opacity}
-                />
+                <Path key={`stroke-${i}`} d={p.d} stroke={p.color} strokeWidth={p.strokeWidth}
+                  strokeLinecap="round" strokeLinejoin="round" fill="none" opacity={p.opacity} />
               ) : null
             ))}
             {currentDrawing && currentDrawing.type === 'stroke' && currentDrawing.d && (
-              <Path
-                d={currentDrawing.d}
-                stroke={currentDrawing.color}
-                strokeWidth={currentDrawing.strokeWidth}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-                opacity={currentDrawing.opacity}
-              />
+              <Path d={currentDrawing.d} stroke={currentDrawing.color} strokeWidth={currentDrawing.strokeWidth}
+                strokeLinecap="round" strokeLinejoin="round" fill="none" opacity={currentDrawing.opacity} />
             )}
           </G>
         </Svg>
 
-        {/* SVG line art ON TOP — rendered via SvgUri from URL (always visible above colors) */}
-        {svgUrl && (
+        {/* SVG line art ON TOP via SvgXml (fetched from URL) */}
+        {svgUrl && svgXml && (
           <View
             style={{ position: 'absolute', top: 0, left: 0, width: canvasSize, height: canvasSize }}
             pointerEvents="none"
           >
-            <SvgUri uri={svgUrl} width={canvasSize} height={canvasSize} />
+            <SvgXml xml={svgXml} width={canvasSize} height={canvasSize} />
           </View>
         )}
 
-        {/* SVG line art from outlinePaths data (when no svgUrl) — ON TOP */}
+        {/* SVG line art from outlinePaths (when no svgUrl) */}
         {!svgUrl && hasOutlinePaths && (
           <Svg
-            width={canvasSize}
-            height={canvasSize}
+            width={canvasSize} height={canvasSize}
             viewBox={`0 0 ${canvasSize} ${canvasSize}`}
             style={{ position: 'absolute', top: 0, left: 0 }}
             pointerEvents="none"
           >
             <G transform={outlineTransform}>
               {outlinePaths!.map((path, index) => (
-                <Path
-                  key={`art-${index}`}
-                  d={path.d}
-                  transform={path.transform}
-                  fill="#000000"
-                  stroke="none"
-                />
+                <Path key={`art-${index}`} d={path.d} transform={path.transform} fill="#000000" stroke="none" />
               ))}
             </G>
           </Svg>
         )}
 
-        {/* Legacy single outline / BackgroundSvg */}
+        {/* Legacy */}
         {!svgUrl && !outlinePaths && (outlinePathData || BackgroundSvg) && (
-          <Svg
-            width={canvasSize}
-            height={canvasSize}
-            viewBox={`0 0 ${canvasSize} ${canvasSize}`}
-            style={{ position: 'absolute', top: 0, left: 0 }}
-            pointerEvents="none"
-          >
+          <Svg width={canvasSize} height={canvasSize} viewBox={`0 0 ${canvasSize} ${canvasSize}`}
+            style={{ position: 'absolute', top: 0, left: 0 }} pointerEvents="none">
             {outlinePathData && outlineTransform && (
-              <G transform={outlineTransform}>
-                <Path d={outlinePathData} fill="#3A3A3A" stroke="none" />
-              </G>
+              <G transform={outlineTransform}><Path d={outlinePathData} fill="#3A3A3A" stroke="none" /></G>
             )}
             {!outlinePathData && BackgroundSvg && (
               <G><BackgroundSvg width={canvasSize} height={canvasSize} /></G>
@@ -367,45 +374,31 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           </Svg>
         )}
 
-        {/* Tap targets for bucket mode — invisible, on top of everything */}
+        {/* Loading */}
+        {svgUrl && svgLoading && (
+          <View style={{ position: 'absolute', top: 0, left: 0, width: canvasSize, height: canvasSize, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#3A3A3A" />
+          </View>
+        )}
+
+        {/* Tap targets for bucket */}
         {isBucket && hasOutlinePaths && (
-          <Svg
-            width={canvasSize}
-            height={canvasSize}
-            viewBox={`0 0 ${canvasSize} ${canvasSize}`}
-            style={{ position: 'absolute', top: 0, left: 0 }}
-            pointerEvents="auto"
-          >
-            <Path
-              d={`M 0 0 H ${canvasSize} V ${canvasSize} H 0 Z`}
-              fill="transparent"
-              onPress={handleBgFill}
-            />
+          <Svg width={canvasSize} height={canvasSize} viewBox={`0 0 ${canvasSize} ${canvasSize}`}
+            style={{ position: 'absolute', top: 0, left: 0 }} pointerEvents="auto">
+            <Path d={`M 0 0 H ${canvasSize} V ${canvasSize} H 0 Z`} fill="transparent" onPress={handleBgFill} />
             <G transform={outlineTransform}>
               {outlinePaths!.map((path, index) => (
-                <Path
-                  key={`tap-${index}`}
-                  d={path.d}
-                  transform={path.transform}
-                  fill="transparent"
-                  stroke="transparent"
-                  strokeWidth={8}
-                  onPress={() => handleFill(index)}
-                />
+                <Path key={`tap-${index}`} d={path.d} transform={path.transform}
+                  fill="transparent" stroke="transparent" strokeWidth={8} onPress={() => handleFill(index)} />
               ))}
             </G>
           </Svg>
         )}
 
-        {/* Touch capture for brush drawing */}
+        {/* Touch for brush */}
         {isBrush && (
-          <View
-            {...panResponder.panHandlers}
-            style={{
-              position: 'absolute', top: 0, left: 0,
-              width: canvasSize, height: canvasSize,
-              backgroundColor: 'transparent',
-            }}
+          <View {...panResponder.panHandlers}
+            style={{ position: 'absolute', top: 0, left: 0, width: canvasSize, height: canvasSize, backgroundColor: 'transparent' }}
           />
         )}
       </View>
