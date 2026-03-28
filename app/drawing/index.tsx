@@ -1,32 +1,32 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  Dimensions,
-  Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import DrawingCanvas, { DrawingCanvasHandle } from '@/components/drawing/DrawingCanvas';
+import { BUTTERFLY_PATHS, BUTTERFLY_VIEWBOX } from '@/components/drawing/ButterflyData';
+import { DUMMY_DRAW2_PATHS, DUMMY_DRAW2_VIEWBOX } from '@/components/drawing/dummydraw2Data';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import * as ImagePicker from 'expo-image-picker';
-import { Image } from 'expo-image';
-import DrawingCanvas, { DrawingCanvasHandle } from '@/components/drawing/DrawingCanvas';
-import { DUMMY_DRAW_PATH_DATA, DUMMY_DRAW_VIEWBOX, DUMMY_DRAW_SILHOUETTE } from '@/components/drawing/dummyDrawPathData';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  Dimensions,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // SVG Icons
-import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
 import AnimalSvg from '../../assets/images/svgicons/animal.svg';
 import CuteSvg from '../../assets/images/svgicons/cute.svg';
+import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
 import SimpleSvg from '../../assets/images/svgicons/simple.svg';
 
-import PencileSvg from '../../assets/images/svgicons/Pencile.svg';
-import BrushSvg from '../../assets/images/svgicons/Brush.svg';
-import SketchPenSvg from '../../assets/images/svgicons/SketchPen.svg';
 import BallPenSvg from '../../assets/images/svgicons/BallPen.svg';
+import BrushSvg from '../../assets/images/svgicons/Brush.svg';
 import PaintSvg from '../../assets/images/svgicons/paint.svg';
+import PencileSvg from '../../assets/images/svgicons/Pencile.svg';
 import SelectedIconSvg from '../../assets/images/svgicons/selected.svg';
+import SketchPenSvg from '../../assets/images/svgicons/SketchPen.svg';
 
 const { width } = Dimensions.get('window');
 const CANVAS_SIZE = width - 48;
@@ -44,6 +44,7 @@ const BRUSHES = [
   { id: 'marker', icon: SketchPenSvg, strokeWidth: 12 },
   { id: 'pen', icon: BallPenSvg, strokeWidth: 4 },
   { id: 'roller', icon: PaintSvg, strokeWidth: 20 },
+  { id: 'bucket', icon: PaintSvg, strokeWidth: 0 }, // Reuse PaintSvg for bucket
 ];
 
 const COLORS = [
@@ -64,14 +65,15 @@ const COLORS = [
 export default function DrawingScreen() {
   const router = useRouter();
   const { slug, mode } = useLocalSearchParams<{ slug?: string; mode?: string }>();
-  
+
   const [selectedBrush, setSelectedBrush] = useState('pencil');
   const [selectedColor, setSelectedColor] = useState('#1A1A1A');
   const [brushSize, setBrushSize] = useState(2);
   const [opacity, setOpacity] = useState(1);
+  const [tool, setTool] = useState<'brush' | 'bucket'>('brush');
   const [pathCount, setPathCount] = useState(0);
   const [pickedImage, setPickedImage] = useState<string | null>(null);
-  
+
   const canvasRef = useRef<DrawingCanvasHandle | null>(null);
 
   useEffect(() => {
@@ -94,8 +96,13 @@ export default function DrawingScreen() {
 
   const handleBrushSelect = (brushId: string) => {
     setSelectedBrush(brushId);
-    const brush = BRUSHES.find(b => b.id === brushId);
-    if (brush) setBrushSize(brush.strokeWidth);
+    if (brushId === 'bucket') {
+      setTool('bucket');
+    } else {
+      setTool('brush');
+      const brush = BRUSHES.find(b => b.id === brushId);
+      if (brush) setBrushSize(brush.strokeWidth);
+    }
   };
 
   const handleSave = async () => {
@@ -111,7 +118,7 @@ export default function DrawingScreen() {
     <SafeAreaView className="flex-1 bg-[#F7F2EF]">
       {/* Header */}
       <View className="flex-row items-center justify-between px-6 py-4">
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => router.back()}
           className="w-10 h-10 items-center justify-center rounded-full bg-[#3A3A3A]"
         >
@@ -120,19 +127,19 @@ export default function DrawingScreen() {
 
         {/* Undo / Redo */}
         <View className="flex-row items-center gap-2">
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => canvasRef.current?.undo()}
             className="w-10 h-10 rounded-full border border-[#F87171] items-center justify-center"
           >
             <IconSymbol name="arrow.uturn.backward" size={18} color="#F87171" />
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => canvasRef.current?.redo()}
             className="w-10 h-10 rounded-full border border-[#F87171] items-center justify-center"
           >
             <IconSymbol name="arrow.uturn.forward" size={18} color="#F87171" />
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => canvasRef.current?.clear()}
             className="w-10 h-10 rounded-full border border-[#F87171] items-center justify-center"
           >
@@ -148,8 +155,8 @@ export default function DrawingScreen() {
         </View>
       </View>
 
-      <ScrollView 
-        showsVerticalScrollIndicator={false} 
+      <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 40 }}
         scrollEnabled={false}
       >
@@ -161,8 +168,9 @@ export default function DrawingScreen() {
               color={selectedColor}
               strokeWidth={brushSize}
               opacity={opacity}
-              outlinePathData={!pickedImage ? DUMMY_DRAW_PATH_DATA : undefined}
-              outlineViewBox={!pickedImage ? DUMMY_DRAW_VIEWBOX : undefined}
+              tool={tool}
+              outlinePaths={!pickedImage ? BUTTERFLY_PATHS : undefined}
+              outlineViewBox={!pickedImage ? BUTTERFLY_VIEWBOX : undefined}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
             />
@@ -174,15 +182,14 @@ export default function DrawingScreen() {
           <View className="flex-row justify-between items-center mb-3">
             <Text className="text-[#3A3A3A] font-semibold text-[16px]">Brush</Text>
           </View>
-          
+
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {BRUSHES.map((brush) => (
               <TouchableOpacity
                 key={brush.id}
                 onPress={() => handleBrushSelect(brush.id)}
-                className={`w-16 h-16 rounded-full items-center justify-center mr-3 border-2 ${
-                  selectedBrush === brush.id ? 'border-[#F87171]' : 'border-white bg-white'
-                }`}
+                className={`w-16 h-16 rounded-full items-center justify-center mr-3 border-2 ${selectedBrush === brush.id ? 'border-[#F87171]' : 'border-white bg-white'
+                  }`}
               >
                 <brush.icon width={40} height={40} />
               </TouchableOpacity>
@@ -195,17 +202,16 @@ export default function DrawingScreen() {
           <View className="flex-row justify-between items-center mb-3">
             <Text className="text-[#3A3A3A] font-semibold text-[16px]">Colors</Text>
           </View>
-          
+
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {COLORS.map((c) => (
               <TouchableOpacity
                 key={c.id}
                 onPress={() => setSelectedColor(c.color)}
-                className={`w-12 h-12 rounded-full mr-3 items-center justify-center ${
-                  selectedColor === c.color ? 'border-2 border-[#F87171] p-1' : ''
-                }`}
+                className={`w-12 h-12 rounded-full mr-3 items-center justify-center ${selectedColor === c.color ? 'border-2 border-[#F87171] p-1' : ''
+                  }`}
               >
-                <View 
+                <View
                   className={`w-full h-full rounded-full ${c.id === 'white' ? 'border border-gray-300' : ''}`}
                   style={{ backgroundColor: c.color }}
                 />
@@ -221,7 +227,7 @@ export default function DrawingScreen() {
 
         {/* Save Button */}
         <View className="mt-8 px-6">
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={handleSave}
             className="bg-[#3A3A3A] h-16 rounded-[32px] items-center justify-center shadow-lg"
           >
