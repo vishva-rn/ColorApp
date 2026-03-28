@@ -1643,6 +1643,30 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-skia (2.5.4):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - react-native-view-shot (4.0.3):
     - hermes-engine
     - RCTRequired
@@ -2391,6 +2415,7 @@ DEPENDENCIES:
   - "react-native-clarity (from `../node_modules/@microsoft/react-native-clarity`)"
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - "react-native-skia (from `../node_modules/@shopify/react-native-skia`)"
   - react-native-view-shot (from `../node_modules/react-native-view-shot`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../node_modules/react-native/ReactCommon/react/networking`)
@@ -2583,6 +2608,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-community/netinfo"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-skia:
+    :path: "../node_modules/@shopify/react-native-skia"
   react-native-view-shot:
     :path: "../node_modules/react-native-view-shot"
   React-NativeModulesApple:
@@ -2740,6 +2767,7 @@ SPEC CHECKSUMS:
   react-native-clarity: a5ed455e8ac25e746125aee0814285c7a7de2c67
   react-native-netinfo: 7e0b1936e928fa8ddb60da9e572a33767db7805f
   react-native-safe-area-context: 37e680fc4cace3c0030ee46e8987d24f5d3bdab2
+  react-native-skia: fd90874143cb5f0563a094ea7306373cc87dab97
   react-native-view-shot: fb3c0774edb448f42705491802a455beac1502a2
   React-NativeModulesApple: f9fa097fc24cec967b77bfc05f72d2ea7db05b87
   React-networking: 29a9ae1a2e6ce8bb19174cc47110b36ae7ffcbcd

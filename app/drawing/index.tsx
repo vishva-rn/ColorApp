@@ -1,11 +1,7 @@
 import DrawingCanvas, { DrawingCanvasHandle } from '@/components/drawing/DrawingCanvas';
-import { BUTTERFLY_PATHS, BUTTERFLY_VIEWBOX } from '@/components/drawing/ButterflyData';
-import { DUMMY_DRAW2_PATHS, DUMMY_DRAW2_VIEWBOX } from '@/components/drawing/dummydraw2Data';
-import { REMOTE_SVG_PATHS, REMOTE_SVG_VIEWBOX } from '@/components/drawing/RemoteSvgData';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -17,11 +13,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // SVG Icons
-import AnimalSvg from '../../assets/images/svgicons/animal.svg';
-import CuteSvg from '../../assets/images/svgicons/cute.svg';
-import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
-import SimpleSvg from '../../assets/images/svgicons/simple.svg';
-
 import BallPenSvg from '../../assets/images/svgicons/BallPen.svg';
 import BrushSvg from '../../assets/images/svgicons/Brush.svg';
 import PaintSvg from '../../assets/images/svgicons/paint.svg';
@@ -31,22 +22,26 @@ import SketchPenSvg from '../../assets/images/svgicons/SketchPen.svg';
 
 const { width } = Dimensions.get('window');
 const CANVAS_SIZE = width - 48;
-
-const DRAWINGS: Record<string, React.FC<any>> = {
-  flowers: FlowersSvg,
-  animal: AnimalSvg,
-  cute: CuteSvg,
-  simple: SimpleSvg,
-};
+// const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_e9f6a295-f0db-4cc3-8cce-01aa887fcdf4.svg';
+// const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_85cc0396-faf8-41cb-a408-04bb8e57c1d9.svg';
+// const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_0de25cf7-aa0a-4de5-91d2-5d041d544b45.svg'
+// const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_652abe04-9041-4395-92f5-577a41380442.svg'
+// const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_875624f3-5384-4560-975e-b7b39752e8d1.svg'
+//const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_c72772e2-7fce-4b9d-8a3f-57abc53460c0.svg'
+const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_4df8e4f1-f6b5-48c0-9b54-94a6a8902fda.svg'
+type BrushOption =
+  | { id: string; kind: 'svg'; icon: React.FC<any>; strokeWidth: number }
+  | { id: string; kind: 'symbol'; symbolName: string; strokeWidth: number };
 
 const BRUSHES = [
-  { id: 'pencil', icon: PencileSvg, strokeWidth: 2 },
-  { id: 'brush', icon: BrushSvg, strokeWidth: 8 },
-  { id: 'marker', icon: SketchPenSvg, strokeWidth: 12 },
-  { id: 'pen', icon: BallPenSvg, strokeWidth: 4 },
-  { id: 'roller', icon: PaintSvg, strokeWidth: 20 },
-  { id: 'bucket', icon: PaintSvg, strokeWidth: 0 }, // Reuse PaintSvg for bucket
-];
+  { id: 'pencil', kind: 'svg', icon: PencileSvg, strokeWidth: 2 },
+  { id: 'brush', kind: 'svg', icon: BrushSvg, strokeWidth: 8 },
+  { id: 'marker', kind: 'svg', icon: SketchPenSvg, strokeWidth: 12 },
+  { id: 'pen', kind: 'svg', icon: BallPenSvg, strokeWidth: 4 },
+  { id: 'roller', kind: 'svg', icon: PaintSvg, strokeWidth: 20 },
+  { id: 'eraser', kind: 'symbol', symbolName: 'eraser.fill', strokeWidth: 18 },
+  { id: 'bucket', kind: 'svg', icon: PaintSvg, strokeWidth: 0 },
+] satisfies BrushOption[];
 
 const COLORS = [
   { id: 'black', color: '#1A1A1A' },
@@ -65,40 +60,23 @@ const COLORS = [
 
 export default function DrawingScreen() {
   const router = useRouter();
-  const { slug, mode } = useLocalSearchParams<{ slug?: string; mode?: string }>();
 
   const [selectedBrush, setSelectedBrush] = useState('pencil');
   const [selectedColor, setSelectedColor] = useState('#1A1A1A');
   const [brushSize, setBrushSize] = useState(2);
-  const [opacity, setOpacity] = useState(1);
-  const [tool, setTool] = useState<'brush' | 'bucket'>('brush');
+  const [tool, setTool] = useState<'brush' | 'bucket' | 'eraser'>('brush');
   const [pathCount, setPathCount] = useState(0);
-  const [pickedImage, setPickedImage] = useState<string | null>(null);
 
   const canvasRef = useRef<DrawingCanvasHandle | null>(null);
-
-  useEffect(() => {
-    if (mode === 'upload') {
-      pickImage();
-    }
-  }, [mode]);
-
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (!result.canceled) {
-      setPickedImage(result.assets[0].uri);
-    }
-  };
 
   const handleBrushSelect = (brushId: string) => {
     setSelectedBrush(brushId);
     if (brushId === 'bucket') {
       setTool('bucket');
+    } else if (brushId === 'eraser') {
+      setTool('eraser');
+      const brush = BRUSHES.find(b => b.id === brushId);
+      if (brush) setBrushSize(brush.strokeWidth);
     } else {
       setTool('brush');
       const brush = BRUSHES.find(b => b.id === brushId);
@@ -168,11 +146,9 @@ export default function DrawingScreen() {
               canvasSize={CANVAS_SIZE}
               color={selectedColor}
               strokeWidth={brushSize}
-              opacity={opacity}
+              opacity={1}
               tool={tool}
-              svgUrl={!pickedImage ? 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_e9f6a295-f0db-4cc3-8cce-01aa887fcdf4.svg' : undefined}
-              outlinePaths={!pickedImage ? REMOTE_SVG_PATHS : undefined}
-              outlineViewBox={!pickedImage ? REMOTE_SVG_VIEWBOX : undefined}
+              svgUrl={REMOTE_SVG_URL}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
             />
@@ -193,7 +169,13 @@ export default function DrawingScreen() {
                 className={`w-16 h-16 rounded-full items-center justify-center mr-3 border-2 ${selectedBrush === brush.id ? 'border-[#F87171]' : 'border-white bg-white'
                   }`}
               >
-                <brush.icon width={40} height={40} />
+                {brush.kind === 'svg' ? (
+                  <brush.icon width={40} height={40} />
+                ) : (
+                  <View className="w-10 h-10 rounded-full bg-[#F3F4F6] items-center justify-center">
+                    <IconSymbol name={brush.symbolName} size={24} color="#3A3A3A" />
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
           </ScrollView>

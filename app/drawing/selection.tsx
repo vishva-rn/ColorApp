@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
@@ -15,8 +14,6 @@ import AnimalSvg from '../../assets/images/svgicons/animal.svg';
 import CuteSvg from '../../assets/images/svgicons/cute.svg';
 import SimpleSvg from '../../assets/images/svgicons/simple.svg';
 import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
-
-const { width } = Dimensions.get('window');
 
 const CATEGORIES = [
   { id: 'animal', label: 'Animals', icon: AnimalSvg, color: '#FEE2E2', textColor: '#EF4444' },
@@ -48,7 +45,7 @@ export default function KidsSelectionScreen() {
 
         <View className="flex-row flex-wrap justify-between">
           {CATEGORIES.map((cat) => (
-            <Link key={cat.id} href={`/drawing?slug=${cat.id}`} asChild>
+            <Link key={cat.id} href="/drawing" asChild>
               <TouchableOpacity
                 className="w-[47%] mb-6 rounded-[32px] overflow-hidden shadow-sm"
                 style={{ backgroundColor: cat.color }}
@@ -68,18 +65,6 @@ export default function KidsSelectionScreen() {
             </Link>
           ))}
         </View>
-
-        {/* Custom Upload Section */}
-        <TouchableOpacity 
-          className="mt-8 bg-white border-2 border-dashed border-[#A0A0A0] rounded-[32px] p-8 items-center"
-          onPress={() => router.push('/drawing?mode=upload')}
-        >
-          <View className="w-16 h-16 bg-[#F3F4F6] rounded-full items-center justify-center mb-4">
-            <IconSymbol name="paperplane.fill" size={32} color="#3A3A3A" />
-          </View>
-          <Text className="font-poppins-bold text-[18px] text-[#3A3A3A]">Upload Photo</Text>
-          <Text className="font-poppins text-[#A0A0A0] text-[14px] mt-1">Convert your photo to drawing</Text>
-        </TouchableOpacity>
 
         <View className="h-20" />
       </ScrollView>
