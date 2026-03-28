@@ -1,6 +1,7 @@
 import DrawingCanvas, { DrawingCanvasHandle } from '@/components/drawing/DrawingCanvas';
 import { BUTTERFLY_PATHS, BUTTERFLY_VIEWBOX } from '@/components/drawing/ButterflyData';
 import { DUMMY_DRAW2_PATHS, DUMMY_DRAW2_VIEWBOX } from '@/components/drawing/dummydraw2Data';
+import { REMOTE_SVG_PATHS, REMOTE_SVG_VIEWBOX } from '@/components/drawing/RemoteSvgData';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -169,8 +170,8 @@ export default function DrawingScreen() {
               strokeWidth={brushSize}
               opacity={opacity}
               tool={tool}
-              outlinePaths={!pickedImage ? BUTTERFLY_PATHS : undefined}
-              outlineViewBox={!pickedImage ? BUTTERFLY_VIEWBOX : undefined}
+              outlinePaths={!pickedImage ? REMOTE_SVG_PATHS : undefined}
+              outlineViewBox={!pickedImage ? REMOTE_SVG_VIEWBOX : undefined}
               canvasRef={canvasRef}
               onPathsChange={(p) => setPathCount(p.length)}
             />
