@@ -341,17 +341,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           {/* 3. Detail outline — rendered ON TOP so lines are always visible */}
           {outlinePaths && outlinePaths.length > 0 && outlineTransform && (
             <G transform={outlineTransform} pointerEvents={tool === 'bucket' ? 'auto' : 'none'}>
-              {outlinePaths.map((path, index) => (
-                <Path
-                  key={`outline-${index}`}
-                  d={path.d}
-                  transform={path.transform}
-                  fill={segmentFills[index] || "white"}
-                  stroke="#3A3A3A"
-                  strokeWidth={0.5}
-                  onPress={() => handleFill(index)}
-                />
-              ))}
+              {outlinePaths.map((path, index) => {
+                const userFill = segmentFills[index];
+                return (
+                  <Path
+                    key={`outline-${index}`}
+                    d={path.d}
+                    transform={path.transform}
+                    fill={userFill || "#3A3A3A"}
+                    stroke="#3A3A3A"
+                    strokeWidth={1}
+                    onPress={() => handleFill(index)}
+                  />
+                );
+              })}
             </G>
           )}
 
