@@ -1,12 +1,11 @@
 /**
  * DrawingCanvas — Touch-based SVG drawing canvas for coloring apps.
  *
- * Supports:
- * - Freehand drawing with configurable brush size, color, opacity
- * - Undo / Redo / Clear
- * - Tap-to-fill individual SVG path segments (bucket tool)
- * - SVG outlines always visible on top of color fills
- * - Save to gallery via react-native-view-shot
+ * Rendering approach for VTracer-style SVGs (filled black shapes):
+ * 1. Render color fills behind
+ * 2. Render the original SVG paths with fill="#000000" (the line art)
+ * 3. Overlay invisible tap targets for bucket tool
+ * 4. Brush strokes on top of everything
  */
 
 import * as FileSystem from 'expo-file-system';
@@ -76,7 +75,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [currentDrawing, setCurrentDrawing] = useState<DrawingPath | null>(null);
   const viewShotRef = useRef<ViewShot>(null);
 
-  // Refs for latest values (used inside PanResponder to avoid stale closures)
+  // Refs for latest values (avoid stale closures in PanResponder)
   const colorRef = useRef(color);
   const strokeWidthRef = useRef(strokeWidth);
   const opacityRef = useRef(opacity);
@@ -89,7 +88,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   useEffect(() => { toolRef.current = tool; }, [tool]);
   useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
 
-  // Compute fills per segment index
+  // Compute fills per segment
   const segmentFills = useMemo(() => {
     const fills: Record<number, string> = {};
     paths.forEach(p => {
@@ -98,14 +97,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     return fills;
   }, [paths]);
 
-  // Background color from bgFill actions
   const backgroundColor = useMemo(() => {
     let bg = "#FFFFFF";
     paths.forEach(p => { if (p.type === 'bgFill') bg = p.color; });
     return bg;
   }, [paths]);
 
-  // Transform to fit outline SVG into the square canvas
+  // Transform to fit SVG into canvas (preserveAspectRatio xMidYMid meet)
   const outlineTransform = useMemo(() => {
     if ((!outlinePathData && !outlinePaths) || !outlineViewBox) return null;
     const { width: svgW, height: svgH } = outlineViewBox;
@@ -114,12 +112,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     const offsetY = (canvasSize - svgH * scale) / 2;
     return `translate(${offsetX}, ${offsetY}) scale(${scale})`;
   }, [outlinePathData, outlinePaths, outlineViewBox, canvasSize]);
-
-  // Scale factor for outline stroke width
-  const outlineScale = useMemo(() => {
-    if (!outlineViewBox) return 1;
-    return Math.min(canvasSize / outlineViewBox.width, canvasSize / outlineViewBox.height);
-  }, [outlineViewBox, canvasSize]);
 
   const handleFill = useCallback((index: number) => {
     if (toolRef.current !== 'bucket') return;
@@ -143,7 +135,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     setRedoStack([]);
   }, []);
 
-  // PanResponder reads from refs for latest values
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => toolRef.current === 'brush',
@@ -268,15 +259,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           />
         )}
 
-        {/*
-          SINGLE SVG with layered rendering order:
-          1. Color fills (behind)
-          2. User brush strokes (middle)
-          3. Black outlines (on top, always visible)
-
-          In bucket mode: SVG captures touches for tap-to-fill
-          In brush mode: SVG is non-interactive, View on top captures touch
-        */}
+        {/* Main SVG — all rendering in one SVG for correct layering */}
         <Svg
           width={canvasSize}
           height={canvasSize}
@@ -284,7 +267,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           style={{ position: 'absolute', top: 0, left: 0 }}
           pointerEvents={isBucket ? 'auto' : 'none'}
         >
-          {/* Background tap target for bucket */}
+          {/* Background tap target */}
           {isBucket && (
             <Path
               d={`M 0 0 H ${canvasSize} V ${canvasSize} H 0 Z`}
@@ -293,7 +276,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             />
           )}
 
-          {/* LAYER 1: Color fills — rendered first (behind outlines) */}
+          {/* LAYER 1: User color fills — BEHIND the black line art */}
           {hasOutlinePaths && (
             <G transform={outlineTransform}>
               {outlinePaths!.map((path, index) => {
@@ -312,7 +295,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             </G>
           )}
 
-          {/* LAYER 2: User brush strokes */}
+          {/* LAYER 2: Original SVG line art — fill="#000000" (solid black shapes) */}
+          {/* This is how VTracer SVGs work: the paths ARE filled black shapes forming the outlines */}
+          {hasOutlinePaths && (
+            <G transform={outlineTransform}>
+              {outlinePaths!.map((path, index) => (
+                <Path
+                  key={`art-${index}`}
+                  d={path.d}
+                  transform={path.transform}
+                  fill="#000000"
+                  stroke="none"
+                />
+              ))}
+            </G>
+          )}
+
+          {/* LAYER 3: User brush strokes — on top of line art */}
           <G>
             {paths.map((p, i) => (
               p.type === 'stroke' && p.d ? (
@@ -341,26 +340,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             )}
           </G>
 
-          {/* LAYER 3: Black outlines — always on top, never hidden behind colors */}
-          {hasOutlinePaths && (
-            <G transform={outlineTransform}>
-              {outlinePaths!.map((path, index) => (
-                <Path
-                  key={`outline-${index}`}
-                  d={path.d}
-                  transform={path.transform}
-                  fill="none"
-                  stroke="#000000"
-                  strokeWidth={1.5 / outlineScale}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  onPress={isBucket ? () => handleFill(index) : undefined}
-                />
-              ))}
-            </G>
-          )}
-
-          {/* Invisible tap targets for bucket mode — larger hit area */}
+          {/* LAYER 4: Invisible tap targets for bucket — on top so they receive taps */}
           {hasOutlinePaths && isBucket && (
             <G transform={outlineTransform}>
               {outlinePaths!.map((path, index) => (
@@ -368,10 +348,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
                   key={`tap-${index}`}
                   d={path.d}
                   transform={path.transform}
-                  fill={segmentFills[index] || "transparent"}
-                  fillOpacity={segmentFills[index] ? 0 : 0}
+                  fill="transparent"
                   stroke="transparent"
-                  strokeWidth={10 / outlineScale}
+                  strokeWidth={5}
                   onPress={() => handleFill(index)}
                 />
               ))}
@@ -391,16 +370,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           )}
         </Svg>
 
-        {/* Touch capture layer for brush drawing — only in brush mode */}
+        {/* Touch capture layer for brush — only in brush mode */}
         {isBrush && (
           <View
             {...panResponder.panHandlers}
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: canvasSize,
-              height: canvasSize,
+              position: 'absolute', top: 0, left: 0,
+              width: canvasSize, height: canvasSize,
               backgroundColor: 'transparent',
             }}
           />
