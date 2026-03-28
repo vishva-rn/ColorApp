@@ -158,6 +158,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   const handleFill = useCallback((index: number) => {
     if (toolRef.current !== 'bucket') return;
+    // Skip path index 0 — it's typically the main body outline (too large to fill as one)
+    // Users should use brush tool for large areas
+    if (index === 0) return;
     const newPath: DrawingPath = { type: 'fill', index, color: colorRef.current, opacity: opacityRef.current };
     setPaths(prev => {
       const newPaths = [...prev, newPath];
