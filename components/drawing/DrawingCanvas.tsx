@@ -81,6 +81,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [svgXml, setSvgXml] = useState<string | null>(null);
   const [svgLoading, setSvgLoading] = useState(false);
 
+  // Use refs to always have the latest color/strokeWidth/opacity in PanResponder
+  const colorRef = useRef(color);
+  const strokeWidthRef = useRef(strokeWidth);
+  const opacityRef = useRef(opacity);
+  const toolRef = useRef(tool);
+  const pathsRef = useRef(paths);
+  const onPathsChangeRef = useRef(onPathsChange);
+
+  useEffect(() => { colorRef.current = color; }, [color]);
+  useEffect(() => { strokeWidthRef.current = strokeWidth; }, [strokeWidth]);
+  useEffect(() => { opacityRef.current = opacity; }, [opacity]);
+  useEffect(() => { toolRef.current = tool; }, [tool]);
+  useEffect(() => { pathsRef.current = paths; }, [paths]);
+  useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
+
   // Fetch remote SVG XML
   useEffect(() => {
     if (!svgUrl) return;
@@ -91,14 +106,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       .then(xml => {
         if (!cancelled) {
           let modifiedXml = xml;
-          // Remove XML declaration if present
           modifiedXml = modifiedXml.replace(/<\?xml[^?]*\?>\s*/g, '');
-          // Remove comments
           modifiedXml = modifiedXml.replace(/<!--[\s\S]*?-->/g, '');
-          // Set width/height to canvas size
           modifiedXml = modifiedXml.replace(/width="[^"]*"/, `width="${canvasSize}"`);
           modifiedXml = modifiedXml.replace(/height="[^"]*"/, `height="${canvasSize}"`);
-          // Add viewBox if missing
           if (!modifiedXml.includes('viewBox')) {
             modifiedXml = modifiedXml.replace('<svg', '<svg viewBox="0 0 1024 1024"');
           }
@@ -141,44 +152,74 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     return { x: Math.round(locationX * 100) / 100, y: Math.round(locationY * 100) / 100 };
   };
 
-  const handleFill = (index: number) => {
-    if (tool !== 'bucket') return;
-    const newPath: DrawingPath = { type: 'fill', index, color, opacity };
-    const newPaths = [...paths, newPath];
-    setPaths(newPaths);
+  const handleFill = useCallback((index: number) => {
+    if (toolRef.current !== 'bucket') return;
+    const newPath: DrawingPath = { type: 'fill', index, color: colorRef.current, opacity: opacityRef.current };
+    setPaths(prev => {
+      const newPaths = [...prev, newPath];
+      onPathsChangeRef.current?.(newPaths);
+      return newPaths;
+    });
     setRedoStack([]);
-    onPathsChange?.(newPaths);
-  };
+  }, []);
 
-  const handleBgFill = () => {
-    if (tool !== 'bucket') return;
-    const newPath: DrawingPath = { type: 'bgFill', color, opacity };
-    const newPaths = [...paths, newPath];
-    setPaths(newPaths);
+  const handleBgFill = useCallback(() => {
+    if (toolRef.current !== 'bucket') return;
+    const newPath: DrawingPath = { type: 'bgFill', color: colorRef.current, opacity: opacityRef.current };
+    setPaths(prev => {
+      const newPaths = [...prev, newPath];
+      onPathsChangeRef.current?.(newPaths);
+      return newPaths;
+    });
     setRedoStack([]);
-    onPathsChange?.(newPaths);
-  };
+  }, []);
 
+  // PanResponder using refs so it always reads latest color/strokeWidth/opacity
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => toolRef.current === 'brush',
+      onMoveShouldSetPanResponder: () => toolRef.current === 'brush',
       onPanResponderGrant: (e) => {
-        const { x, y } = getPoint(e);
+        if (toolRef.current !== 'brush') return;
+        const { locationX, locationY } = e.nativeEvent;
+        const x = Math.round(locationX * 100) / 100;
+        const y = Math.round(locationY * 100) / 100;
         currentPath.current = `M${x},${y}`;
-        setCurrentDrawing({ type: 'stroke', d: currentPath.current, color, strokeWidth, opacity });
+        setCurrentDrawing({
+          type: 'stroke',
+          d: currentPath.current,
+          color: colorRef.current,
+          strokeWidth: strokeWidthRef.current,
+          opacity: opacityRef.current,
+        });
       },
       onPanResponderMove: (e) => {
-        const { x, y } = getPoint(e);
+        if (toolRef.current !== 'brush') return;
+        const { locationX, locationY } = e.nativeEvent;
+        const x = Math.round(locationX * 100) / 100;
+        const y = Math.round(locationY * 100) / 100;
         currentPath.current += ` L${x},${y}`;
-        setCurrentDrawing({ type: 'stroke', d: currentPath.current, color, strokeWidth, opacity });
+        setCurrentDrawing({
+          type: 'stroke',
+          d: currentPath.current,
+          color: colorRef.current,
+          strokeWidth: strokeWidthRef.current,
+          opacity: opacityRef.current,
+        });
       },
       onPanResponderRelease: () => {
+        if (toolRef.current !== 'brush') return;
         if (currentPath.current) {
-          const newPath: DrawingPath = { type: 'stroke', d: currentPath.current, color, strokeWidth, opacity };
+          const newPath: DrawingPath = {
+            type: 'stroke',
+            d: currentPath.current,
+            color: colorRef.current,
+            strokeWidth: strokeWidthRef.current,
+            opacity: opacityRef.current,
+          };
           setPaths(prev => {
             const newPaths = [...prev, newPath];
-            onPathsChange?.(newPaths);
+            onPathsChangeRef.current?.(newPaths);
             return newPaths;
           });
           setRedoStack([]);
@@ -195,10 +236,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       const newPaths = [...prev];
       const removed = newPaths.pop()!;
       setRedoStack(r => [...r, removed]);
-      onPathsChange?.(newPaths);
+      onPathsChangeRef.current?.(newPaths);
       return newPaths;
     });
-  }, [onPathsChange]);
+  }, []);
 
   const redo = useCallback(() => {
     setRedoStack(prev => {
@@ -207,20 +248,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       const restored = newRedo.pop()!;
       setPaths(p => {
         const newPaths = [...p, restored];
-        onPathsChange?.(newPaths);
+        onPathsChangeRef.current?.(newPaths);
         return newPaths;
       });
       return newRedo;
     });
-  }, [onPathsChange]);
+  }, []);
 
   const clear = useCallback(() => {
     setPaths(prev => {
       setRedoStack(r => [...r, ...prev]);
-      onPathsChange?.([]);
+      onPathsChangeRef.current?.([]);
       return [];
     });
-  }, [onPathsChange]);
+  }, []);
 
   const save = useCallback(async (): Promise<string | null> => {
     try {
@@ -244,6 +285,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     canvasRef.current = { undo, redo, clear, save, getPathCount: () => paths.length };
   }
 
+  const isBrush = tool === 'brush';
+
   return (
     <ViewShot
       ref={viewShotRef}
@@ -258,7 +301,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     >
       <View style={{ width: canvasSize, height: canvasSize, position: 'relative' }}>
 
-        {/* Layer 1: Background image (for uploaded images) */}
+        {/* Layer 1: Background image */}
         {backgroundImage && (
           <Image
             source={backgroundImage}
@@ -267,7 +310,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           />
         )}
 
-        {/* Layer 2: Remote SVG rendered from URL */}
+        {/* Layer 2: Remote SVG from URL */}
         {svgUrl && svgXml && (
           <View
             style={{ position: 'absolute', top: 0, left: 0, width: canvasSize, height: canvasSize }}
@@ -277,14 +320,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           </View>
         )}
 
-        {/* Layer 2b: Outline paths (when not using svgUrl) */}
+        {/* Layer 2b: Outline paths with tap-to-fill (when using outlinePaths) */}
         {!svgUrl && outlinePaths && outlinePaths.length > 0 && outlineTransform && (
           <Svg
             width={canvasSize}
             height={canvasSize}
             viewBox={`0 0 ${canvasSize} ${canvasSize}`}
             style={{ position: 'absolute', top: 0, left: 0 }}
-            pointerEvents={tool === 'bucket' ? 'auto' : 'none'}
+            pointerEvents={isBrush ? 'none' : 'auto'}
           >
             <Path
               d={`M 0 0 H ${canvasSize} V ${canvasSize} H 0 Z`}
@@ -326,24 +369,63 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           </Svg>
         )}
 
-        {/* Loading indicator for remote SVG */}
+        {/* Loading indicator */}
         {svgUrl && svgLoading && (
           <View style={{ position: 'absolute', top: 0, left: 0, width: canvasSize, height: canvasSize, justifyContent: 'center', alignItems: 'center' }}>
             <ActivityIndicator size="large" color="#3A3A3A" />
           </View>
         )}
 
-        {/* Layer 3: Drawing strokes overlay + touch capture */}
-        <View
-          {...(tool === 'brush' ? panResponder.panHandlers : {})}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: canvasSize,
-            height: canvasSize,
-          }}
-        >
+        {/* Layer 3: Drawing touch layer — ONLY shown in brush mode */}
+        {isBrush && (
+          <View
+            {...panResponder.panHandlers}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: canvasSize,
+              height: canvasSize,
+              backgroundColor: 'transparent',
+            }}
+          >
+            <Svg
+              width={canvasSize}
+              height={canvasSize}
+              viewBox={`0 0 ${canvasSize} ${canvasSize}`}
+              pointerEvents="none"
+            >
+              {paths.map((p, i) => (
+                p.type === 'stroke' && p.d ? (
+                  <Path
+                    key={`stroke-${i}`}
+                    d={p.d}
+                    stroke={p.color}
+                    strokeWidth={p.strokeWidth}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                    opacity={p.opacity}
+                  />
+                ) : null
+              ))}
+              {currentDrawing && currentDrawing.type === 'stroke' && currentDrawing.d && (
+                <Path
+                  d={currentDrawing.d}
+                  stroke={currentDrawing.color}
+                  strokeWidth={currentDrawing.strokeWidth}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  opacity={currentDrawing.opacity}
+                />
+              )}
+            </Svg>
+          </View>
+        )}
+
+        {/* Layer 3b: Strokes visible in bucket mode too (but no touch capture) */}
+        {!isBrush && paths.some(p => p.type === 'stroke') && (
           <Svg
             width={canvasSize}
             height={canvasSize}
@@ -365,19 +447,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
                 />
               ) : null
             ))}
-            {currentDrawing && currentDrawing.type === 'stroke' && currentDrawing.d && (
-              <Path
-                d={currentDrawing.d}
-                stroke={currentDrawing.color}
-                strokeWidth={currentDrawing.strokeWidth}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-                opacity={currentDrawing.opacity}
-              />
-            )}
           </Svg>
-        </View>
+        )}
       </View>
     </ViewShot>
   );
