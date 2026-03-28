@@ -341,20 +341,35 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           {/* 3. Detail outline — rendered ON TOP so lines are always visible */}
           {outlinePaths && outlinePaths.length > 0 && outlineTransform && (
             <G transform={outlineTransform} pointerEvents={tool === 'bucket' ? 'auto' : 'none'}>
+              {/* First pass: render user fills BEHIND the outlines */}
               {outlinePaths.map((path, index) => {
                 const userFill = segmentFills[index];
+                if (!userFill) return null;
                 return (
                   <Path
-                    key={`outline-${index}`}
+                    key={`fill-${index}`}
                     d={path.d}
                     transform={path.transform}
-                    fill={userFill || "#3A3A3A"}
-                    stroke="#3A3A3A"
-                    strokeWidth={1}
-                    onPress={() => handleFill(index)}
+                    fill={userFill}
+                    stroke="none"
+                    opacity={1}
                   />
                 );
               })}
+              {/* Second pass: render black outline strokes on top */}
+              {outlinePaths.map((path, index) => (
+                <Path
+                  key={`outline-${index}`}
+                  d={path.d}
+                  transform={path.transform}
+                  fill="none"
+                  stroke="#1A1A1A"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  onPress={() => handleFill(index)}
+                />
+              ))}
             </G>
           )}
 
