@@ -5,25 +5,25 @@
  * - Freehand drawing with configurable brush size, color, opacity
  * - Undo / Redo
  * - Clear canvas
- * - Optional background outline (rendered from raw SVG path data)
- * - Optional clipPath to restrict drawing to within the outline shape
+ * - Tap-to-fill on SVG path segments
+ * - Remote SVG URL rendering via SvgXml
  * - Save to gallery via react-native-view-shot
  */
 
 import * as FileSystem from 'expo-file-system';
 import { Image } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Dimensions, GestureResponderEvent, ImageSourcePropType, PanResponder, View } from 'react-native';
-import Svg, { G, Path } from 'react-native-svg';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Dimensions, GestureResponderEvent, ImageSourcePropType, PanResponder, View } from 'react-native';
+import Svg, { G, Path, SvgXml } from 'react-native-svg';
 import ViewShot from 'react-native-view-shot';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export interface DrawingPath {
   type: 'stroke' | 'fill' | 'bgFill';
-  d?: string; // for stroke
-  index?: number; // for fill segment index
+  d?: string;
+  index?: number;
   color: string;
   strokeWidth?: number;
   opacity: number;
@@ -35,29 +35,19 @@ export interface OutlinePath {
 }
 
 interface DrawingCanvasProps {
-  /** Canvas width & height (default: screen width - 48) */
   canvasSize?: number;
-  /** Current brush color */
   color?: string;
-  /** Current brush stroke width */
   strokeWidth?: number;
-  /** Current brush opacity (0-1) */
   opacity?: number;
-  /** Current tool: 'brush' for freehand, 'bucket' for tap-to-fill */
   tool?: 'brush' | 'bucket';
-  /** Background SVG component (legacy, prefer outlinePathData) */
   BackgroundSvg?: React.FC<{ width: number; height: number }>;
-  /** Background image source (PNG/JPG) */
   backgroundImage?: ImageSourcePropType;
-  /** Raw SVG path 'd' attribute for the outline shape (legacy) */
   outlinePathData?: string;
-  /** Multiple outline paths for complex SVGs */
   outlinePaths?: OutlinePath[];
-  /** Original viewBox of the outline SVG, e.g. { width: 141, height: 440 } */
   outlineViewBox?: { width: number; height: number };
-  /** Callback when paths change */
+  /** Remote SVG URL — fetched and rendered directly */
+  svgUrl?: string;
   onPathsChange?: (paths: DrawingPath[]) => void;
-  /** Ref to expose canvas methods */
   canvasRef?: React.MutableRefObject<DrawingCanvasHandle | null>;
 }
 
@@ -80,6 +70,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   outlinePathData,
   outlinePaths,
   outlineViewBox,
+  svgUrl,
   onPathsChange,
   canvasRef,
 }) => {
@@ -88,6 +79,46 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const currentPath = useRef<string>('');
   const [currentDrawing, setCurrentDrawing] = useState<DrawingPath | null>(null);
   const viewShotRef = useRef<ViewShot>(null);
+  const [svgXml, setSvgXml] = useState<string | null>(null);
+  const [svgLoading, setSvgLoading] = useState(false);
+
+  // Fetch remote SVG XML
+  useEffect(() => {
+    if (!svgUrl) return;
+    let cancelled = false;
+    setSvgLoading(true);
+    fetch(svgUrl)
+      .then(res => res.text())
+      .then(xml => {
+        if (!cancelled) {
+          // Modify SVG to fit canvas: set width/height and preserve viewBox
+          let modifiedXml = xml;
+          // Replace width and height in the SVG tag
+          modifiedXml = modifiedXml.replace(
+            /width="[^"]*"/,
+            `width="${canvasSize}"`
+          );
+          modifiedXml = modifiedXml.replace(
+            /height="[^"]*"/,
+            `height="${canvasSize}"`
+          );
+          // Ensure viewBox exists
+          if (!modifiedXml.includes('viewBox')) {
+            modifiedXml = modifiedXml.replace(
+              '<svg',
+              '<svg viewBox="0 0 1024 1024"'
+            );
+          }
+          setSvgXml(modifiedXml);
+          setSvgLoading(false);
+        }
+      })
+      .catch(err => {
+        console.error('[DrawingCanvas] Failed to fetch SVG:', err);
+        if (!cancelled) setSvgLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [svgUrl, canvasSize]);
 
   // Compute current fills from paths
   const segmentFills = useMemo(() => {
@@ -100,19 +131,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     return fills;
   }, [paths]);
 
-  // Compute current background color from paths
   const backgroundColor = useMemo(() => {
     let lastBgColor = "#FFFFFF";
     paths.forEach(p => {
-      if (p.type === 'bgFill') {
-        lastBgColor = p.color;
-      }
+      if (p.type === 'bgFill') lastBgColor = p.color;
     });
     return lastBgColor;
   }, [paths]);
 
-  // Compute the transform to fit the outline SVG into the square canvas
-  // Mimics SVG preserveAspectRatio="xMidYMid meet"
   const outlineTransform = useMemo(() => {
     if ((!outlinePathData && !outlinePaths) || !outlineViewBox) return null;
     const { width: svgW, height: svgH } = outlineViewBox;
@@ -129,13 +155,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   const handleFill = (index: number) => {
     if (tool !== 'bucket') return;
-
-    const newPath: DrawingPath = {
-      type: 'fill',
-      index,
-      color,
-      opacity,
-    };
+    const newPath: DrawingPath = { type: 'fill', index, color, opacity };
     const newPaths = [...paths, newPath];
     setPaths(newPaths);
     setRedoStack([]);
@@ -144,12 +164,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   const handleBgFill = () => {
     if (tool !== 'bucket') return;
-
-    const newPath: DrawingPath = {
-      type: 'bgFill',
-      color,
-      opacity,
-    };
+    const newPath: DrawingPath = { type: 'bgFill', color, opacity };
     const newPaths = [...paths, newPath];
     setPaths(newPaths);
     setRedoStack([]);
@@ -163,36 +178,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       if (tool !== 'brush') return;
       const { x, y } = getPoint(e);
       currentPath.current = `M${x},${y}`;
-      setCurrentDrawing({
-        type: 'stroke',
-        d: currentPath.current,
-        color,
-        strokeWidth,
-        opacity,
-      });
+      setCurrentDrawing({ type: 'stroke', d: currentPath.current, color, strokeWidth, opacity });
     },
     onPanResponderMove: (e) => {
       if (tool !== 'brush') return;
       const { x, y } = getPoint(e);
       currentPath.current += ` L${x},${y}`;
-      setCurrentDrawing({
-        type: 'stroke',
-        d: currentPath.current,
-        color,
-        strokeWidth,
-        opacity,
-      });
+      setCurrentDrawing({ type: 'stroke', d: currentPath.current, color, strokeWidth, opacity });
     },
     onPanResponderRelease: () => {
       if (tool !== 'brush') return;
       if (currentPath.current) {
-        const newPath: DrawingPath = {
-          type: 'stroke',
-          d: currentPath.current,
-          color,
-          strokeWidth,
-          opacity,
-        };
+        const newPath: DrawingPath = { type: 'stroke', d: currentPath.current, color, strokeWidth, opacity };
         const newPaths = [...paths, newPath];
         setPaths(newPaths);
         setRedoStack([]);
@@ -232,15 +229,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') return null;
-
       if (!viewShotRef.current?.capture) return null;
       const uri = await viewShotRef.current.capture();
-
       const fileName = `coloring_${Date.now()}.png`;
       const cacheDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
       const destUri = `${cacheDir}${fileName}`;
       await FileSystem.copyAsync({ from: uri, to: destUri });
-
       await MediaLibrary.saveToLibraryAsync(destUri);
       return destUri;
     } catch (error) {
@@ -249,15 +243,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
   }, []);
 
-  // Expose methods via ref
   if (canvasRef) {
-    canvasRef.current = {
-      undo,
-      redo,
-      clear,
-      save,
-      getPathCount: () => paths.length,
-    };
+    canvasRef.current = { undo, redo, clear, save, getPathCount: () => paths.length };
   }
 
   return (
@@ -281,18 +268,27 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         {backgroundImage && (
           <Image
             source={backgroundImage}
-            style={{
-              width: canvasSize,
-              height: canvasSize,
-              position: 'absolute',
-              top: 0,
-              left: 0,
-            }}
+            style={{ width: canvasSize, height: canvasSize, position: 'absolute', top: 0, left: 0 }}
             contentFit="contain"
             pointerEvents="none"
           />
         )}
 
+        {/* Remote SVG rendered directly from URL XML */}
+        {svgUrl && svgXml && (
+          <View style={{ position: 'absolute', top: 0, left: 0, width: canvasSize, height: canvasSize }} pointerEvents="none">
+            <SvgXml xml={svgXml} width={canvasSize} height={canvasSize} />
+          </View>
+        )}
+
+        {/* Loading indicator for remote SVG */}
+        {svgUrl && svgLoading && (
+          <View style={{ position: 'absolute', top: 0, left: 0, width: canvasSize, height: canvasSize, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#3A3A3A" />
+          </View>
+        )}
+
+        {/* SVG overlay for drawing strokes and outline paths */}
         <Svg
           width={canvasSize}
           height={canvasSize}
@@ -300,15 +296,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           style={{ position: 'absolute', top: 0, left: 0 }}
           pointerEvents="box-none"
         >
-          {/* 1. Background Fill Layer */}
-          <Path
-            d={`M 0 0 H ${canvasSize} V ${canvasSize} H 0 Z`}
-            fill={backgroundColor}
-            onPress={handleBgFill}
-            pointerEvents={tool === 'bucket' ? 'auto' : 'none'}
-          />
+          {/* Background Fill Layer (only when no svgUrl) */}
+          {!svgUrl && (
+            <Path
+              d={`M 0 0 H ${canvasSize} V ${canvasSize} H 0 Z`}
+              fill={backgroundColor}
+              onPress={handleBgFill}
+              pointerEvents={tool === 'bucket' ? 'auto' : 'none'}
+            />
+          )}
 
-          {/* 2. User's drawn strokes */}
+          {/* User's drawn strokes */}
           <G pointerEvents="none">
             {paths.map((p, i) => (
               p.type === 'stroke' && p.d && (
@@ -324,7 +322,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
                 />
               )
             ))}
-
             {currentDrawing && currentDrawing.type === 'stroke' && currentDrawing.d && (
               <Path
                 d={currentDrawing.d}
@@ -338,56 +335,35 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             )}
           </G>
 
-          {/* 3. Detail outline — rendered ON TOP so lines are always visible */}
-          {outlinePaths && outlinePaths.length > 0 && outlineTransform && (
+          {/* Outline paths with tap-to-fill (when using outlinePaths data) */}
+          {!svgUrl && outlinePaths && outlinePaths.length > 0 && outlineTransform && (
             <G transform={outlineTransform} pointerEvents={tool === 'bucket' ? 'auto' : 'none'}>
-              {/* First pass: render user fills BEHIND the outlines */}
               {outlinePaths.map((path, index) => {
                 const userFill = segmentFills[index];
-                if (!userFill) return null;
                 return (
                   <Path
-                    key={`fill-${index}`}
+                    key={`outline-${index}`}
                     d={path.d}
                     transform={path.transform}
-                    fill={userFill}
+                    fill={userFill || "#000000"}
                     stroke="none"
-                    opacity={1}
+                    onPress={() => handleFill(index)}
                   />
                 );
               })}
-              {/* Second pass: render black outline strokes on top */}
-              {outlinePaths.map((path, index) => (
-                <Path
-                  key={`outline-${index}`}
-                  d={path.d}
-                  transform={path.transform}
-                  fill="none"
-                  stroke="#1A1A1A"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  onPress={() => handleFill(index)}
-                />
-              ))}
             </G>
           )}
 
-          {!outlinePaths && outlinePathData && outlineTransform && (
+          {/* Legacy single outline path */}
+          {!svgUrl && !outlinePaths && outlinePathData && outlineTransform && (
             <G transform={outlineTransform}>
-              <Path
-                d={outlinePathData}
-                fill="#3A3A3A"
-                stroke="none"
-              />
+              <Path d={outlinePathData} fill="#3A3A3A" stroke="none" />
             </G>
           )}
 
-          {/* Fallback: legacy BackgroundSvg component */}
-          {!outlinePathData && BackgroundSvg && (
-            <G>
-              <BackgroundSvg width={canvasSize} height={canvasSize} />
-            </G>
+          {/* Legacy BackgroundSvg component */}
+          {!svgUrl && !outlinePathData && !outlinePaths && BackgroundSvg && (
+            <G><BackgroundSvg width={canvasSize} height={canvasSize} /></G>
           )}
         </Svg>
       </View>
