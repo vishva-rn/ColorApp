@@ -11,26 +11,35 @@ import {
   BlendMode,
   Canvas,
   ColorType,
+  ImageFormat,
   Image as SkiaImage,
   PaintStyle,
   Skia,
   StrokeCap,
   StrokeJoin,
+  TileMode,
   type SkImage,
+  type SkPath,
 } from '@shopify/react-native-skia';
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, PanResponder, View } from 'react-native';
-import Svg, { Path, SvgXml } from 'react-native-svg';
-import ViewShot from 'react-native-view-shot';
+import Svg, {
+  Defs,
+  LinearGradient,
+  Path,
+  RadialGradient,
+  Stop,
+  SvgXml,
+} from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type StrokeAction = {
   type: 'stroke' | 'erase';
   d: string;
-  color: string;
+  paint: DrawingPaint;
   strokeWidth: number;
   opacity: number;
 };
@@ -38,15 +47,56 @@ type StrokeAction = {
 type FillAction = {
   type: 'fill';
   regionLabel: number;
-  color: string;
+  paint: DrawingPaint;
   opacity: number;
 };
 
 export type DrawingPath = StrokeAction | FillAction;
 
+export type SolidDrawingPaint = {
+  id: string;
+  kind: 'solid';
+  color: string;
+};
+
+export type LinearGradientDrawingPaint = {
+  id: string;
+  kind: 'linear-gradient';
+  colors: [string, string];
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+};
+
+export type RadialGradientDrawingPaint = {
+  id: string;
+  kind: 'radial-gradient';
+  colors: [string, string];
+  center: { x: number; y: number };
+  radius: number;
+};
+
+export type LayeredGradientDrawingPaint = {
+  id: string;
+  kind: 'layered-gradient';
+  baseColor: string;
+  overlays: {
+    colors: [string, string];
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    opacity?: number;
+  }[];
+};
+
+export type DrawingPaint =
+  | SolidDrawingPaint
+  | LinearGradientDrawingPaint
+  | RadialGradientDrawingPaint
+  | LayeredGradientDrawingPaint;
+
 interface DrawingCanvasProps {
   canvasSize?: number;
   color?: string;
+  paint?: DrawingPaint;
   strokeWidth?: number;
   opacity?: number;
   tool?: 'brush' | 'bucket' | 'eraser';
@@ -61,6 +111,10 @@ export interface DrawingCanvasHandle {
   clear: () => void;
   save: () => Promise<string | null>;
   getPathCount: () => number;
+}
+
+function makeSolidPaint(color: string, id = `solid-${color.replace('#', '').toLowerCase()}`): SolidDrawingPaint {
+  return { id, kind: 'solid', color };
 }
 
 function parseNumericValue(value: string | undefined, fallback = 0): number {
@@ -184,18 +238,263 @@ function buildRenderableSvgXml(
   return fixed;
 }
 
-function hexToRgba(color: string, opacity: number): [number, number, number, number] {
-  const normalized = color.replace('#', '').trim();
-  const expanded = normalized.length === 3
-    ? normalized.split('').map((value) => value + value).join('')
-    : normalized;
+function parseColorToRgba(color: string): [number, number, number, number] {
+  const normalized = color.trim().toLowerCase();
 
-  const red = Number.parseInt(expanded.slice(0, 2), 16) || 0;
-  const green = Number.parseInt(expanded.slice(2, 4), 16) || 0;
-  const blue = Number.parseInt(expanded.slice(4, 6), 16) || 0;
-  const alpha = Math.round(Math.min(Math.max(opacity, 0), 1) * 255);
+  if (normalized.startsWith('rgba(')) {
+    const values = normalized.slice(5, -1).split(',').map((value) => value.trim());
+    const [red, green, blue, alpha = '1'] = values;
+    return [
+      Number.parseFloat(red) || 0,
+      Number.parseFloat(green) || 0,
+      Number.parseFloat(blue) || 0,
+      Math.round((Number.parseFloat(alpha) || 0) * 255),
+    ];
+  }
 
-  return [red, green, blue, alpha];
+  if (normalized.startsWith('rgb(')) {
+    const values = normalized.slice(4, -1).split(',').map((value) => value.trim());
+    const [red, green, blue] = values;
+    return [
+      Number.parseFloat(red) || 0,
+      Number.parseFloat(green) || 0,
+      Number.parseFloat(blue) || 0,
+      255,
+    ];
+  }
+
+  if (normalized === 'white') return [255, 255, 255, 255];
+  if (normalized === 'black') return [0, 0, 0, 255];
+
+  const hex = normalized.replace('#', '');
+  const expanded = hex.length === 3
+    ? hex.split('').map((value) => value + value).join('')
+    : hex;
+
+  return [
+    Number.parseInt(expanded.slice(0, 2), 16) || 0,
+    Number.parseInt(expanded.slice(2, 4), 16) || 0,
+    Number.parseInt(expanded.slice(4, 6), 16) || 0,
+    255,
+  ];
+}
+
+function applyOpacityToRgba(
+  rgba: [number, number, number, number],
+  opacity: number,
+): [number, number, number, number] {
+  return [rgba[0], rgba[1], rgba[2], Math.round(rgba[3] * Math.min(Math.max(opacity, 0), 1))];
+}
+
+function interpolateRgba(
+  start: [number, number, number, number],
+  end: [number, number, number, number],
+  t: number,
+): [number, number, number, number] {
+  const clamped = Math.min(Math.max(t, 0), 1);
+  return [
+    Math.round(start[0] + (end[0] - start[0]) * clamped),
+    Math.round(start[1] + (end[1] - start[1]) * clamped),
+    Math.round(start[2] + (end[2] - start[2]) * clamped),
+    Math.round(start[3] + (end[3] - start[3]) * clamped),
+  ];
+}
+
+function compositeRgba(
+  base: [number, number, number, number],
+  overlay: [number, number, number, number],
+): [number, number, number, number] {
+  const overlayAlpha = overlay[3] / 255;
+  const baseAlpha = base[3] / 255;
+  const outAlpha = overlayAlpha + baseAlpha * (1 - overlayAlpha);
+
+  if (outAlpha <= 0) return [0, 0, 0, 0];
+
+  return [
+    Math.round((overlay[0] * overlayAlpha + base[0] * baseAlpha * (1 - overlayAlpha)) / outAlpha),
+    Math.round((overlay[1] * overlayAlpha + base[1] * baseAlpha * (1 - overlayAlpha)) / outAlpha),
+    Math.round((overlay[2] * overlayAlpha + base[2] * baseAlpha * (1 - overlayAlpha)) / outAlpha),
+    Math.round(outAlpha * 255),
+  ];
+}
+
+function sampleLinearGradientColor(
+  colors: [string, string],
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  x: number,
+  y: number,
+  canvasSize: number,
+): [number, number, number, number] {
+  const startX = start.x * canvasSize;
+  const startY = start.y * canvasSize;
+  const endX = end.x * canvasSize;
+  const endY = end.y * canvasSize;
+  const deltaX = endX - startX;
+  const deltaY = endY - startY;
+  const lengthSquared = deltaX * deltaX + deltaY * deltaY || 1;
+  const projection = ((x - startX) * deltaX + (y - startY) * deltaY) / lengthSquared;
+
+  return interpolateRgba(
+    parseColorToRgba(colors[0]),
+    parseColorToRgba(colors[1]),
+    projection,
+  );
+}
+
+function samplePaintColorAtPoint(
+  paint: DrawingPaint,
+  x: number,
+  y: number,
+  canvasSize: number,
+): [number, number, number, number] {
+  if (paint.kind === 'solid') {
+    return parseColorToRgba(paint.color);
+  }
+
+  if (paint.kind === 'linear-gradient') {
+    return sampleLinearGradientColor(paint.colors, paint.start, paint.end, x, y, canvasSize);
+  }
+
+  if (paint.kind === 'radial-gradient') {
+    const centerX = paint.center.x * canvasSize;
+    const centerY = paint.center.y * canvasSize;
+    const radius = Math.max(paint.radius * canvasSize, 1);
+    const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+
+    return interpolateRgba(
+      parseColorToRgba(paint.colors[0]),
+      parseColorToRgba(paint.colors[1]),
+      distance / radius,
+    );
+  }
+
+  let layeredColor = parseColorToRgba(paint.baseColor);
+
+  for (const overlay of paint.overlays) {
+    const overlayColor = sampleLinearGradientColor(
+      overlay.colors,
+      overlay.start,
+      overlay.end,
+      x,
+      y,
+      canvasSize,
+    );
+    layeredColor = compositeRgba(
+      layeredColor,
+      applyOpacityToRgba(overlayColor, overlay.opacity ?? 1),
+    );
+  }
+
+  return layeredColor;
+}
+
+function getPaintCacheKey(paint: DrawingPaint): string {
+  return JSON.stringify(paint);
+}
+
+function makeSkiaShaderFromPaint(paint: DrawingPaint, canvasSize: number) {
+  if (paint.kind === 'solid' || paint.kind === 'layered-gradient') {
+    return null;
+  }
+
+  if (paint.kind === 'linear-gradient') {
+    return Skia.Shader.MakeLinearGradient(
+      {
+        x: paint.start.x * canvasSize,
+        y: paint.start.y * canvasSize,
+      },
+      {
+        x: paint.end.x * canvasSize,
+        y: paint.end.y * canvasSize,
+      },
+      paint.colors.map((color) => Skia.Color(color)),
+      null,
+      TileMode.Clamp,
+    );
+  }
+
+  return Skia.Shader.MakeRadialGradient(
+    {
+      x: paint.center.x * canvasSize,
+      y: paint.center.y * canvasSize,
+    },
+    Math.max(paint.radius * canvasSize, 1),
+    paint.colors.map((color) => Skia.Color(color)),
+    null,
+    TileMode.Clamp,
+  );
+}
+
+function drawGradientStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  if (pathPaint.kind === 'solid') {
+    const strokePaint = Skia.Paint();
+    strokePaint.setAntiAlias(true);
+    strokePaint.setStyle(PaintStyle.Stroke);
+    strokePaint.setStrokeCap(StrokeCap.Round);
+    strokePaint.setStrokeJoin(StrokeJoin.Round);
+    strokePaint.setStrokeWidth(strokeWidth);
+    strokePaint.setAlphaf(opacity);
+    strokePaint.setColor(Skia.Color(pathPaint.color));
+    canvas.drawPath(skPath, strokePaint);
+    return;
+  }
+
+  if (pathPaint.kind === 'layered-gradient') {
+    const basePaint = Skia.Paint();
+    basePaint.setAntiAlias(true);
+    basePaint.setStyle(PaintStyle.Stroke);
+    basePaint.setStrokeCap(StrokeCap.Round);
+    basePaint.setStrokeJoin(StrokeJoin.Round);
+    basePaint.setStrokeWidth(strokeWidth);
+    basePaint.setAlphaf(opacity);
+    basePaint.setColor(Skia.Color(pathPaint.baseColor));
+    canvas.drawPath(skPath, basePaint);
+
+    for (const overlay of pathPaint.overlays) {
+      const overlayPaint = Skia.Paint();
+      overlayPaint.setAntiAlias(true);
+      overlayPaint.setStyle(PaintStyle.Stroke);
+      overlayPaint.setStrokeCap(StrokeCap.Round);
+      overlayPaint.setStrokeJoin(StrokeJoin.Round);
+      overlayPaint.setStrokeWidth(strokeWidth);
+      overlayPaint.setAlphaf(opacity * (overlay.opacity ?? 1));
+      overlayPaint.setShader(
+        Skia.Shader.MakeLinearGradient(
+          {
+            x: overlay.start.x * canvasSize,
+            y: overlay.start.y * canvasSize,
+          },
+          {
+            x: overlay.end.x * canvasSize,
+            y: overlay.end.y * canvasSize,
+          },
+          overlay.colors.map((color) => Skia.Color(color)),
+          null,
+          TileMode.Clamp,
+        ),
+      );
+      canvas.drawPath(skPath, overlayPaint);
+    }
+    return;
+  }
+
+  const gradientPaint = Skia.Paint();
+  gradientPaint.setAntiAlias(true);
+  gradientPaint.setStyle(PaintStyle.Stroke);
+  gradientPaint.setStrokeCap(StrokeCap.Round);
+  gradientPaint.setStrokeJoin(StrokeJoin.Round);
+  gradientPaint.setStrokeWidth(strokeWidth);
+  gradientPaint.setAlphaf(opacity);
+  gradientPaint.setShader(makeSkiaShaderFromPaint(pathPaint, canvasSize));
+  canvas.drawPath(skPath, gradientPaint);
 }
 
 function createBoundaryMasks(
@@ -411,13 +710,18 @@ function expandRegionMask(regionMask: Uint8Array, lineMask: Uint8Array, canvasSi
   return expandedMask;
 }
 
-function buildFillImage(regionMask: Uint8Array, canvasSize: number, color: string, opacity: number): SkImage | null {
+function buildFillImage(regionMask: Uint8Array, canvasSize: number, paint: DrawingPaint, opacity: number): SkImage | null {
   const bytes = new Uint8Array(canvasSize * canvasSize * 4);
-  const [red, green, blue, alpha] = hexToRgba(color, opacity);
 
   for (let index = 0; index < regionMask.length; index += 1) {
     if (!regionMask[index]) continue;
 
+    const x = index % canvasSize;
+    const y = Math.floor(index / canvasSize);
+    const [red, green, blue, alpha] = applyOpacityToRgba(
+      samplePaintColorAtPoint(paint, x, y, canvasSize),
+      opacity,
+    );
     const offset = index * 4;
     bytes[offset] = red;
     bytes[offset + 1] = green;
@@ -440,6 +744,7 @@ function buildFillImage(regionMask: Uint8Array, canvasSize: number, color: strin
 const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   canvasSize = SCREEN_WIDTH - 48,
   color = '#000000',
+  paint,
   strokeWidth = 4,
   opacity = 1,
   tool = 'brush',
@@ -452,11 +757,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [, setRedoStack] = useState<DrawingPath[]>([]);
   const currentPath = useRef('');
   const [currentDrawing, setCurrentDrawing] = useState<StrokeAction | null>(null);
-  const viewShotRef = useRef<ViewShot>(null);
   const [svgXml, setSvgXml] = useState<string | null>(null);
   const [svgLoading, setSvgLoading] = useState(false);
   const [paintImage, setPaintImage] = useState<SkImage | null>(null);
   const [maskVersion, setMaskVersion] = useState(0);
+  const resolvedPaint = useMemo(() => paint ?? makeSolidPaint(color), [paint, color]);
+  const pathsRef = useRef<DrawingPath[]>([]);
 
   const lineMaskRef = useRef<Uint8Array | null>(null);
   const boundaryMaskRef = useRef<Uint8Array | null>(null);
@@ -465,17 +771,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const fillRegionCacheRef = useRef<Map<number, Uint8Array | null>>(new Map());
   const fillImageCacheRef = useRef<Map<string, SkImage | null>>(new Map());
 
-  const colorRef = useRef(color);
+  const paintRef = useRef<DrawingPaint>(resolvedPaint);
   const strokeWidthRef = useRef(strokeWidth);
   const opacityRef = useRef(opacity);
   const toolRef = useRef(tool);
   const onPathsChangeRef = useRef(onPathsChange);
 
-  useEffect(() => { colorRef.current = color; }, [color]);
+  useEffect(() => { paintRef.current = resolvedPaint; }, [resolvedPaint]);
   useEffect(() => { strokeWidthRef.current = strokeWidth; }, [strokeWidth]);
   useEffect(() => { opacityRef.current = opacity; }, [opacity]);
   useEffect(() => { toolRef.current = tool; }, [tool]);
   useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
+  useEffect(() => { pathsRef.current = paths; }, [paths]);
 
   useEffect(() => {
     if (!svgUrl) {
@@ -562,10 +869,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           fillRegionCacheRef.current.set(action.regionLabel, regionMask);
         }
 
-        const fillImageKey = `${action.regionLabel}:${action.color}:${action.opacity}`;
+        const fillImageKey = `${action.regionLabel}:${getPaintCacheKey(action.paint)}:${action.opacity}`;
         let fillImage = fillImageCacheRef.current.get(fillImageKey) ?? null;
         if (!fillImage) {
-          fillImage = buildFillImage(regionMask, rasterSize, action.color, action.opacity);
+          fillImage = buildFillImage(regionMask, rasterSize, action.paint, action.opacity);
           fillImageCacheRef.current.set(fillImageKey, fillImage);
         }
         if (fillImage) {
@@ -577,21 +884,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       const skPath = Skia.Path.MakeFromSVGString(action.d);
       if (!skPath) continue;
 
-      const paint = Skia.Paint();
-      paint.setAntiAlias(true);
-      paint.setStyle(PaintStyle.Stroke);
-      paint.setStrokeCap(StrokeCap.Round);
-      paint.setStrokeJoin(StrokeJoin.Round);
-      paint.setStrokeWidth(action.strokeWidth);
-      paint.setAlphaf(action.opacity);
-
       if (action.type === 'erase') {
+        const paint = Skia.Paint();
+        paint.setAntiAlias(true);
+        paint.setStyle(PaintStyle.Stroke);
+        paint.setStrokeCap(StrokeCap.Round);
+        paint.setStrokeJoin(StrokeJoin.Round);
+        paint.setStrokeWidth(action.strokeWidth);
+        paint.setAlphaf(action.opacity);
         paint.setBlendMode(BlendMode.Clear);
+        canvas.drawPath(skPath, paint);
       } else {
-        paint.setColor(Skia.Color(action.color));
+        drawGradientStroke(canvas, skPath, action.paint, action.strokeWidth, action.opacity, rasterSize);
       }
-
-      canvas.drawPath(skPath, paint);
     }
 
     surface.flush();
@@ -629,7 +934,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     pushPath({
       type: 'fill',
       regionLabel,
-      color: colorRef.current,
+      paint: paintRef.current,
       opacity: opacityRef.current,
     });
   }, [pushPath, rasterSize]);
@@ -655,7 +960,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         setCurrentDrawing({
           type: toolRef.current === 'eraser' ? 'erase' : 'stroke',
           d: currentPath.current,
-          color: toolRef.current === 'eraser' ? '#FFFFFF' : colorRef.current,
+          paint: toolRef.current === 'eraser' ? makeSolidPaint('#FFFFFF', 'eraser-white') : paintRef.current,
           strokeWidth: strokeWidthRef.current,
           opacity: opacityRef.current,
         });
@@ -670,7 +975,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         setCurrentDrawing({
           type: toolRef.current === 'eraser' ? 'erase' : 'stroke',
           d: currentPath.current,
-          color: toolRef.current === 'eraser' ? '#FFFFFF' : colorRef.current,
+          paint: toolRef.current === 'eraser' ? makeSolidPaint('#FFFFFF', 'eraser-white') : paintRef.current,
           strokeWidth: strokeWidthRef.current,
           opacity: opacityRef.current,
         });
@@ -686,7 +991,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         pushPath({
           type: toolRef.current === 'eraser' ? 'erase' : 'stroke',
           d: committedPath,
-          color: toolRef.current === 'eraser' ? '#FFFFFF' : colorRef.current,
+          paint: toolRef.current === 'eraser' ? makeSolidPaint('#FFFFFF', 'eraser-white') : paintRef.current,
           strokeWidth: strokeWidthRef.current,
           opacity: opacityRef.current,
         });
@@ -752,38 +1057,171 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') return null;
-      if (!viewShotRef.current?.capture) return null;
 
-      const uri = await viewShotRef.current.capture();
-      const fileName = `coloring_${Date.now()}.png`;
-      const legacyFileSystem = FileSystem as typeof FileSystem & {
-        cacheDirectory?: string;
-        documentDirectory?: string;
-      };
-      const cacheDir = legacyFileSystem.cacheDirectory || legacyFileSystem.documentDirectory || '';
-      const destinationUri = `${cacheDir}${fileName}`;
+      const surface = Skia.Surface.MakeOffscreen(rasterSize, rasterSize) ?? Skia.Surface.Make(rasterSize, rasterSize);
+      if (!surface) return null;
 
-      await FileSystem.copyAsync({ from: uri, to: destinationUri });
-      await MediaLibrary.saveToLibraryAsync(destinationUri);
-      return destinationUri;
+      const canvas = surface.getCanvas();
+      canvas.clear(Skia.Color('#FFFFFF'));
+
+      const exportPaintImage = paintImage?.makeNonTextureImage() ?? paintImage;
+      if (exportPaintImage) {
+        canvas.drawImage(exportPaintImage, 0, 0);
+      }
+
+      if (svgXml) {
+        const svgDom = Skia.SVG.MakeFromString(svgXml);
+        if (svgDom) {
+          canvas.drawSvg(svgDom, rasterSize, rasterSize);
+        }
+      }
+
+      surface.flush();
+      const snapshot = surface.makeImageSnapshot();
+      const rasterSnapshot = snapshot.makeNonTextureImage() ?? snapshot;
+      const encodedBytes = rasterSnapshot.encodeToBytes(ImageFormat.PNG, 100);
+      if (!encodedBytes?.length) return null;
+
+      const file = new File(Paths.cache, `coloring_${Date.now()}.png`);
+      file.create({ intermediates: true, overwrite: true });
+      file.write(encodedBytes);
+
+      await MediaLibrary.saveToLibraryAsync(file.uri);
+      return file.uri;
     } catch (error) {
       console.error('[DrawingCanvas] Save error:', error);
       return null;
     }
-  }, []);
+  }, [paintImage, rasterSize, svgXml]);
 
-  if (canvasRef) {
-    canvasRef.current = {
-      undo,
-      redo,
-      clear,
-      save,
-      getPathCount: () => paths.length,
+  const imperativeHandle = useMemo<DrawingCanvasHandle>(() => ({
+    undo,
+    redo,
+    clear,
+    save,
+    getPathCount: () => pathsRef.current.length,
+  }), [clear, redo, save, undo]);
+
+  useEffect(() => {
+    if (!canvasRef) return;
+
+    canvasRef.current = imperativeHandle;
+
+    return () => {
+      if (canvasRef.current === imperativeHandle) {
+        canvasRef.current = null;
+      }
     };
-  }
+  }, [canvasRef, imperativeHandle]);
 
   const currentPreview = useMemo(() => {
     if (!currentDrawing?.d) return null;
+
+    const previewGradientId = `preview-${currentDrawing.paint.id}`;
+
+    const renderStrokePath = () => {
+      if (currentDrawing.type === 'erase') {
+        return (
+          <Path
+            d={currentDrawing.d}
+            stroke="#FFFFFF"
+            strokeWidth={currentDrawing.strokeWidth}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={0.9}
+          />
+        );
+      }
+
+      if (currentDrawing.paint.kind === 'solid') {
+        return (
+          <Path
+            d={currentDrawing.d}
+            stroke={currentDrawing.paint.color}
+            strokeWidth={currentDrawing.strokeWidth}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={currentDrawing.opacity}
+          />
+        );
+      }
+
+      if (currentDrawing.paint.kind === 'layered-gradient') {
+        const overlay = currentDrawing.paint.overlays[0];
+        return (
+          <>
+            <Defs>
+              <LinearGradient
+                id={previewGradientId}
+                x1={`${overlay.start.x * 100}%`}
+                y1={`${overlay.start.y * 100}%`}
+                x2={`${overlay.end.x * 100}%`}
+                y2={`${overlay.end.y * 100}%`}
+              >
+                <Stop offset="0%" stopColor={overlay.colors[0]} />
+                <Stop offset="100%" stopColor={overlay.colors[1]} />
+              </LinearGradient>
+            </Defs>
+            <Path
+              d={currentDrawing.d}
+              stroke={currentDrawing.paint.baseColor}
+              strokeWidth={currentDrawing.strokeWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+              opacity={currentDrawing.opacity}
+            />
+            <Path
+              d={currentDrawing.d}
+              stroke={`url(#${previewGradientId})`}
+              strokeWidth={currentDrawing.strokeWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+              opacity={currentDrawing.opacity * (overlay.opacity ?? 1)}
+            />
+          </>
+        );
+      }
+
+      const GradientComponent =
+        currentDrawing.paint.kind === 'radial-gradient' ? RadialGradient : LinearGradient;
+
+      const gradientProps = currentDrawing.paint.kind === 'radial-gradient'
+        ? {
+            cx: `${currentDrawing.paint.center.x * 100}%`,
+            cy: `${currentDrawing.paint.center.y * 100}%`,
+            r: `${currentDrawing.paint.radius * 100}%`,
+          }
+        : {
+            x1: `${currentDrawing.paint.start.x * 100}%`,
+            y1: `${currentDrawing.paint.start.y * 100}%`,
+            x2: `${currentDrawing.paint.end.x * 100}%`,
+            y2: `${currentDrawing.paint.end.y * 100}%`,
+          };
+
+      return (
+        <>
+          <Defs>
+            <GradientComponent id={previewGradientId} {...gradientProps}>
+              <Stop offset="0%" stopColor={currentDrawing.paint.colors[0]} />
+              <Stop offset="100%" stopColor={currentDrawing.paint.colors[1]} />
+            </GradientComponent>
+          </Defs>
+          <Path
+            d={currentDrawing.d}
+            stroke={`url(#${previewGradientId})`}
+            strokeWidth={currentDrawing.strokeWidth}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={currentDrawing.opacity}
+          />
+        </>
+      );
+    };
 
     return (
       <Svg
@@ -793,23 +1231,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         style={{ position: 'absolute', top: 0, left: 0 }}
         pointerEvents="none"
       >
-        <Path
-          d={currentDrawing.d}
-          stroke={currentDrawing.type === 'erase' ? '#FFFFFF' : currentDrawing.color}
-          strokeWidth={currentDrawing.strokeWidth}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-          opacity={currentDrawing.type === 'erase' ? 0.9 : currentDrawing.opacity}
-        />
+        {renderStrokePath()}
       </Svg>
     );
   }, [canvasSize, currentDrawing]);
 
   return (
-    <ViewShot
-      ref={viewShotRef}
-      options={{ format: 'png', quality: 1 }}
+    <View
       style={{
         width: canvasSize,
         height: canvasSize,
@@ -884,7 +1312,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           }}
         />
       </View>
-    </ViewShot>
+    </View>
   );
 };
 

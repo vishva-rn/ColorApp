@@ -28,7 +28,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>colorapp</string>
-				<string>com.daxitaccount.ColorApp</string>
+				<string>com.PixelcolorPaint.app</string>
 			</array>
 		</dict>
 	</array>
@@ -41,10 +41,26 @@
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
-		<false/>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>3.145.90.196</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs access to local network to connect to the development server.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>ColorApp saves your finished drawings to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ColorApp saves your finished drawings to your photo library.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

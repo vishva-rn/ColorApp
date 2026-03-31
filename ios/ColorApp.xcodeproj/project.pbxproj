@@ -26,7 +26,7 @@
 		8E06E78F5EE335AB69783A3D /* Pods-ColorApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ColorApp.debug.xcconfig"; path = "Target Support Files/Pods-ColorApp/Pods-ColorApp.debug.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = ColorApp/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		E47705539398FC5B3B61B185 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ColorApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		E47705539398FC5B3B61B185 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = ColorApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = ColorApp/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* ColorApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "ColorApp-Bridging-Header.h"; path = "ColorApp/ColorApp-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -73,7 +73,6 @@
 				8E06E78F5EE335AB69783A3D /* Pods-ColorApp.debug.xcconfig */,
 				095734A380C1A57C03C9B5BE /* Pods-ColorApp.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -351,6 +350,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = ColorApp/ColorApp.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QVZ5VG9TX5;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -369,7 +369,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.daxitaccount.ColorApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.PixelcolorPaint.app;
 				PRODUCT_NAME = ColorApp;
 				SWIFT_OBJC_BRIDGING_HEADER = "ColorApp/ColorApp-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -387,6 +387,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = ColorApp/ColorApp.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QVZ5VG9TX5;
 				INFOPLIST_FILE = ColorApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -400,7 +401,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = com.daxitaccount.ColorApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.PixelcolorPaint.app;
 				PRODUCT_NAME = ColorApp;
 				SWIFT_OBJC_BRIDGING_HEADER = "ColorApp/ColorApp-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;

@@ -10,7 +10,22 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.daxitaccount.ColorApp"
+      "bundleIdentifier": "com.PixelcolorPaint.app",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSExceptionDomains": {
+            "3.145.90.196": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSIncludesSubdomains": true
+            }
+          },
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "This app needs access to local network to connect to the development server.",
+        "NSPhotoLibraryUsageDescription": "ColorApp saves your finished drawings to your photo library.",
+        "NSPhotoLibraryAddUsageDescription": "ColorApp saves your finished drawings to your photo library."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +36,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.daxitaccount.ColorApp"
+      "usesCleartextTraffic": true,
+      "package": "com.PixelcolorPaint.app"
     },
     "web": {
       "output": "static",
@@ -51,6 +67,7 @@
     },
     "extra": {
       "router": {},
+      "imageToSvgApiBaseUrl": "http://3.145.90.196:8000",
       "eas": {
         "projectId": "6adefd7c-76d3-47d6-9859-6c362ead9b56"
       }
