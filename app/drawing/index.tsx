@@ -10,6 +10,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, {
   Defs,
@@ -35,6 +41,8 @@ import SketchPenSvg from '../../assets/images/svgicons/SketchPen.svg';
 
 const { width } = Dimensions.get('window');
 const CANVAS_SIZE = width - 48;
+const MIN_CANVAS_ZOOM = 1;
+const MAX_CANVAS_ZOOM = 3;
 // const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_e9f6a295-f0db-4cc3-8cce-01aa887fcdf4.svg';
 // const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_85cc0396-faf8-41cb-a408-04bb8e57c1d9.svg';
 // const REMOTE_SVG_URL = 'https://blogimages.smartshot.ai/ColourApp/1e1f03d8-1041-4723-823a-341212482e3c/result_svg_0de25cf7-aa0a-4de5-91d2-5d041d544b45.svg'
@@ -264,6 +272,13 @@ function PaintSwatch({ paint }: { paint: DrawingPaint }) {
   );
 }
 
+function clampOffset(value: number, scale: number) {
+  'worklet';
+
+  const maxOffset = Math.max(((CANVAS_SIZE * scale) - CANVAS_SIZE) / 2, 0);
+  return Math.min(Math.max(value, -maxOffset), maxOffset);
+}
+
 export default function DrawingScreen() {
   const router = useRouter();
   const { svgUrl } = useLocalSearchParams<{ svgUrl?: string | string[] }>();
@@ -274,8 +289,16 @@ export default function DrawingScreen() {
   const [brushSize, setBrushSize] = useState(2);
   const [tool, setTool] = useState<'brush' | 'bucket' | 'eraser'>('brush');
   const [pathCount, setPathCount] = useState(0);
+  const [isCanvasGestureActive, setIsCanvasGestureActive] = useState(false);
 
   const canvasRef = useRef<DrawingCanvasHandle | null>(null);
+  const activeCanvasGestureCountRef = useRef(0);
+  const canvasScale = useSharedValue(1);
+  const canvasTranslateX = useSharedValue(0);
+  const canvasTranslateY = useSharedValue(0);
+  const pinchStartScale = useSharedValue(1);
+  const panStartX = useSharedValue(0);
+  const panStartY = useSharedValue(0);
   const activePalette = PALETTES.find((palette) => palette.id === selectedPalette) ?? PALETTES[0];
   const activePaint = activePalette.paints.find((paint) => paint.id === selectedPaintId) ?? activePalette.paints[0];
   const remoteSvgUrl = Array.isArray(svgUrl) ? svgUrl[0] : svgUrl;
@@ -310,6 +333,75 @@ export default function DrawingScreen() {
       Alert.alert('Error', 'Could not save drawing. Please grant photo library permissions.');
     }
   };
+
+  const beginCanvasGesture = () => {
+    activeCanvasGestureCountRef.current += 1;
+    if (activeCanvasGestureCountRef.current === 1) {
+      setIsCanvasGestureActive(true);
+    }
+  };
+
+  const endCanvasGesture = () => {
+    activeCanvasGestureCountRef.current = Math.max(activeCanvasGestureCountRef.current - 1, 0);
+    if (activeCanvasGestureCountRef.current === 0) {
+      setIsCanvasGestureActive(false);
+    }
+  };
+
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      runOnJS(beginCanvasGesture)();
+      pinchStartScale.value = canvasScale.value;
+    })
+    .onUpdate((event) => {
+      const nextScale = Math.min(
+        Math.max(pinchStartScale.value * event.scale, MIN_CANVAS_ZOOM),
+        MAX_CANVAS_ZOOM,
+      );
+      canvasScale.value = nextScale;
+      canvasTranslateX.value = clampOffset(canvasTranslateX.value, nextScale);
+      canvasTranslateY.value = clampOffset(canvasTranslateY.value, nextScale);
+    })
+    .onFinalize(() => {
+      runOnJS(endCanvasGesture)();
+    });
+
+  const panGesture = Gesture.Pan()
+    .minPointers(2)
+    .onStart(() => {
+      runOnJS(beginCanvasGesture)();
+      panStartX.value = canvasTranslateX.value;
+      panStartY.value = canvasTranslateY.value;
+    })
+    .onUpdate((event) => {
+      if (canvasScale.value <= 1.01) {
+        canvasTranslateX.value = 0;
+        canvasTranslateY.value = 0;
+        return;
+      }
+
+      canvasTranslateX.value = clampOffset(
+        panStartX.value + event.translationX,
+        canvasScale.value,
+      );
+      canvasTranslateY.value = clampOffset(
+        panStartY.value + event.translationY,
+        canvasScale.value,
+      );
+    })
+    .onFinalize(() => {
+      runOnJS(endCanvasGesture)();
+    });
+
+  const zoomGesture = Gesture.Simultaneous(pinchGesture, panGesture);
+
+  const zoomedCanvasStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: canvasTranslateX.value },
+      { translateY: canvasTranslateY.value },
+      { scale: canvasScale.value },
+    ],
+  }));
 
   return (
     <SafeAreaView className="flex-1 bg-[#F7F2EF]">
@@ -352,19 +444,32 @@ export default function DrawingScreen() {
         </View>
       </View>
 
-      <View className="px-6 mt-2">
-        <View className="bg-white rounded-[32px] p-3 shadow-sm border border-gray-100">
-          <DrawingCanvas
-            canvasSize={CANVAS_SIZE}
-            paint={activePaint}
-            strokeWidth={brushSize}
-            opacity={1}
-            tool={tool}
-            svgUrl={drawingSvgUrl}
-            canvasRef={canvasRef}
-            onPathsChange={(p) => setPathCount(p.length)}
-          />
-        </View>
+      <View className="px-6 mt-2 items-center">
+        <GestureDetector gesture={zoomGesture}>
+          <View
+            style={{
+              width: CANVAS_SIZE,
+              height: CANVAS_SIZE,
+              overflow: 'hidden',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Animated.View style={zoomedCanvasStyle}>
+              <DrawingCanvas
+                canvasSize={CANVAS_SIZE}
+                paint={activePaint}
+                strokeWidth={brushSize}
+                opacity={1}
+                tool={tool}
+                drawingEnabled={!isCanvasGestureActive}
+                svgUrl={drawingSvgUrl}
+                canvasRef={canvasRef}
+                onPathsChange={(p) => setPathCount(p.length)}
+              />
+            </Animated.View>
+          </View>
+        </GestureDetector>
       </View>
 
       <ScrollView

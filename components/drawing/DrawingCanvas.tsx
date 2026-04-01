@@ -26,11 +26,7 @@ import * as MediaLibrary from 'expo-media-library';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, PanResponder, View } from 'react-native';
 import Svg, {
-  Defs,
-  LinearGradient,
   Path,
-  RadialGradient,
-  Stop,
   SvgXml,
 } from 'react-native-svg';
 
@@ -100,6 +96,7 @@ interface DrawingCanvasProps {
   strokeWidth?: number;
   opacity?: number;
   tool?: 'brush' | 'bucket' | 'eraser';
+  drawingEnabled?: boolean;
   svgUrl?: string;
   onPathsChange?: (paths: DrawingPath[]) => void;
   canvasRef?: React.MutableRefObject<DrawingCanvasHandle | null>;
@@ -111,6 +108,26 @@ export interface DrawingCanvasHandle {
   clear: () => void;
   save: () => Promise<string | null>;
   getPathCount: () => number;
+}
+
+function getActiveTouchCount(nativeEvent: {
+  numberActiveTouches?: number;
+  touches?: { length: number };
+  changedTouches?: { length: number };
+}): number {
+  if (typeof nativeEvent.numberActiveTouches === 'number' && nativeEvent.numberActiveTouches > 0) {
+    return nativeEvent.numberActiveTouches;
+  }
+
+  if (nativeEvent.touches?.length) {
+    return nativeEvent.touches.length;
+  }
+
+  if (nativeEvent.changedTouches?.length) {
+    return nativeEvent.changedTouches.length;
+  }
+
+  return 0;
 }
 
 function makeSolidPaint(color: string, id = `solid-${color.replace('#', '').toLowerCase()}`): SolidDrawingPaint {
@@ -748,14 +765,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   strokeWidth = 4,
   opacity = 1,
   tool = 'brush',
+  drawingEnabled = true,
   svgUrl,
   onPathsChange,
   canvasRef,
 }) => {
   const rasterSize = Math.max(Math.round(canvasSize), 1);
   const [paths, setPaths] = useState<DrawingPath[]>([]);
-  const [, setRedoStack] = useState<DrawingPath[]>([]);
-  const currentPath = useRef('');
+  const [redoStack, setRedoStack] = useState<DrawingPath[]>([]);
   const [currentDrawing, setCurrentDrawing] = useState<StrokeAction | null>(null);
   const [svgXml, setSvgXml] = useState<string | null>(null);
   const [svgLoading, setSvgLoading] = useState(false);
@@ -763,6 +780,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [maskVersion, setMaskVersion] = useState(0);
   const resolvedPaint = useMemo(() => paint ?? makeSolidPaint(color), [paint, color]);
   const pathsRef = useRef<DrawingPath[]>([]);
+  const redoStackRef = useRef<DrawingPath[]>([]);
+  const paintImageRef = useRef<SkImage | null>(null);
 
   const lineMaskRef = useRef<Uint8Array | null>(null);
   const boundaryMaskRef = useRef<Uint8Array | null>(null);
@@ -775,14 +794,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const strokeWidthRef = useRef(strokeWidth);
   const opacityRef = useRef(opacity);
   const toolRef = useRef(tool);
+  const drawingEnabledRef = useRef(drawingEnabled);
   const onPathsChangeRef = useRef(onPathsChange);
+  const currentActionTypeRef = useRef<'stroke' | 'erase' | null>(null);
+  const currentPathSegmentsRef = useRef<string[]>([]);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => { paintRef.current = resolvedPaint; }, [resolvedPaint]);
   useEffect(() => { strokeWidthRef.current = strokeWidth; }, [strokeWidth]);
   useEffect(() => { opacityRef.current = opacity; }, [opacity]);
   useEffect(() => { toolRef.current = tool; }, [tool]);
+  useEffect(() => { drawingEnabledRef.current = drawingEnabled; }, [drawingEnabled]);
   useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
   useEffect(() => { pathsRef.current = paths; }, [paths]);
+  useEffect(() => { redoStackRef.current = redoStack; }, [redoStack]);
+  useEffect(() => { paintImageRef.current = paintImage; }, [paintImage]);
+  useEffect(() => { onPathsChangeRef.current?.(paths); }, [paths]);
 
   useEffect(() => {
     if (!svgUrl) {
@@ -793,6 +820,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       regionSizesRef.current = new Map();
       fillRegionCacheRef.current.clear();
       fillImageCacheRef.current.clear();
+      paintImageRef.current = null;
+      setPaintImage(null);
       setMaskVersion((version) => version + 1);
       return;
     }
@@ -818,6 +847,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         regionSizesRef.current = regionData?.regionSizes ?? new Map();
         fillRegionCacheRef.current.clear();
         fillImageCacheRef.current.clear();
+        paintImageRef.current = null;
         setMaskVersion((version) => version + 1);
         setSvgLoading(false);
       })
@@ -832,6 +862,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         regionSizesRef.current = new Map();
         fillRegionCacheRef.current.clear();
         fillImageCacheRef.current.clear();
+        paintImageRef.current = null;
+        setPaintImage(null);
         setMaskVersion((version) => version + 1);
         setSvgLoading(false);
       });
@@ -841,94 +873,189 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     };
   }, [svgUrl, canvasSize, rasterSize]);
 
-  const rebuildPaintImage = useCallback((actions: DrawingPath[]) => {
+  const getExpandedRegionMask = useCallback((regionLabel: number) => {
+    const cachedRegionMask = fillRegionCacheRef.current.get(regionLabel) ?? null;
+    if (cachedRegionMask) return cachedRegionMask;
+
+    const lineMask = lineMaskRef.current;
+    const regionLabels = regionLabelsRef.current;
+    if (!lineMask || !regionLabels) return null;
+
+    let regionMask = buildRegionMask(regionLabel, regionLabels, rasterSize);
+    regionMask = expandRegionMask(regionMask, lineMask, rasterSize, 2);
+    fillRegionCacheRef.current.set(regionLabel, regionMask);
+    return regionMask;
+  }, [rasterSize]);
+
+  const setRenderedPaintImage = useCallback((nextImage: SkImage | null) => {
+    paintImageRef.current = nextImage;
+    setPaintImage(nextImage);
+  }, []);
+
+  const drawActionOnCanvas = useCallback((canvas: any, action: DrawingPath) => {
+    if (action.type === 'fill') {
+      const regionMask = getExpandedRegionMask(action.regionLabel);
+      if (!regionMask) return;
+
+      const fillImageKey = `${action.regionLabel}:${getPaintCacheKey(action.paint)}:${action.opacity}`;
+      let fillImage = fillImageCacheRef.current.get(fillImageKey) ?? null;
+      if (!fillImage) {
+        fillImage = buildFillImage(regionMask, rasterSize, action.paint, action.opacity);
+        fillImageCacheRef.current.set(fillImageKey, fillImage);
+      }
+
+      if (fillImage) {
+        canvas.drawImage(fillImage, 0, 0);
+      }
+      return;
+    }
+
+    const skPath = Skia.Path.MakeFromSVGString(action.d);
+    if (!skPath) return;
+
+    if (action.type === 'erase') {
+      const erasePaint = Skia.Paint();
+      erasePaint.setAntiAlias(true);
+      erasePaint.setStyle(PaintStyle.Stroke);
+      erasePaint.setStrokeCap(StrokeCap.Round);
+      erasePaint.setStrokeJoin(StrokeJoin.Round);
+      erasePaint.setStrokeWidth(action.strokeWidth);
+      erasePaint.setAlphaf(action.opacity);
+      erasePaint.setBlendMode(BlendMode.Clear);
+      canvas.drawPath(skPath, erasePaint);
+      return;
+    }
+
+    drawGradientStroke(canvas, skPath, action.paint, action.strokeWidth, action.opacity, rasterSize);
+  }, [getExpandedRegionMask, rasterSize]);
+
+  const renderActionsToImage = useCallback((actions: DrawingPath[]) => {
     if (actions.length === 0) {
-      setPaintImage(null);
+      setRenderedPaintImage(null);
       return;
     }
 
     const surface = Skia.Surface.Make(rasterSize, rasterSize);
     if (!surface) {
-      setPaintImage(null);
+      setRenderedPaintImage(null);
       return;
     }
 
     const canvas = surface.getCanvas();
     canvas.clear(Skia.Color('transparent'));
 
-    for (const action of actions) {
-      if (action.type === 'fill') {
-        const lineMask = lineMaskRef.current;
-        const regionLabels = regionLabelsRef.current;
-        if (!lineMask || !regionLabels) continue;
-
-        let regionMask = fillRegionCacheRef.current.get(action.regionLabel) ?? null;
-        if (!regionMask) {
-          regionMask = buildRegionMask(action.regionLabel, regionLabels, rasterSize);
-          regionMask = expandRegionMask(regionMask, lineMask, rasterSize, 2);
-          fillRegionCacheRef.current.set(action.regionLabel, regionMask);
-        }
-
-        const fillImageKey = `${action.regionLabel}:${getPaintCacheKey(action.paint)}:${action.opacity}`;
-        let fillImage = fillImageCacheRef.current.get(fillImageKey) ?? null;
-        if (!fillImage) {
-          fillImage = buildFillImage(regionMask, rasterSize, action.paint, action.opacity);
-          fillImageCacheRef.current.set(fillImageKey, fillImage);
-        }
-        if (fillImage) {
-          canvas.drawImage(fillImage, 0, 0);
-        }
-        continue;
-      }
-
-      const skPath = Skia.Path.MakeFromSVGString(action.d);
-      if (!skPath) continue;
-
-      if (action.type === 'erase') {
-        const paint = Skia.Paint();
-        paint.setAntiAlias(true);
-        paint.setStyle(PaintStyle.Stroke);
-        paint.setStrokeCap(StrokeCap.Round);
-        paint.setStrokeJoin(StrokeJoin.Round);
-        paint.setStrokeWidth(action.strokeWidth);
-        paint.setAlphaf(action.opacity);
-        paint.setBlendMode(BlendMode.Clear);
-        canvas.drawPath(skPath, paint);
-      } else {
-        drawGradientStroke(canvas, skPath, action.paint, action.strokeWidth, action.opacity, rasterSize);
-      }
-    }
+    actions.forEach((action) => {
+      drawActionOnCanvas(canvas, action);
+    });
 
     surface.flush();
     const snapshot = surface.makeImageSnapshot();
     const rasterImage = snapshot.makeNonTextureImage() ?? snapshot;
-    setPaintImage(rasterImage);
-  }, [rasterSize]);
+    setRenderedPaintImage(rasterImage);
+  }, [drawActionOnCanvas, rasterSize, setRenderedPaintImage]);
+
+  const appendActionToImage = useCallback((action: DrawingPath) => {
+    const surface = Skia.Surface.Make(rasterSize, rasterSize);
+    if (!surface) {
+      renderActionsToImage([...pathsRef.current, action]);
+      return;
+    }
+
+    const canvas = surface.getCanvas();
+    canvas.clear(Skia.Color('transparent'));
+
+    if (paintImageRef.current) {
+      canvas.drawImage(paintImageRef.current, 0, 0);
+    }
+
+    drawActionOnCanvas(canvas, action);
+
+    surface.flush();
+    const snapshot = surface.makeImageSnapshot();
+    const rasterImage = snapshot.makeNonTextureImage() ?? snapshot;
+    setRenderedPaintImage(rasterImage);
+  }, [drawActionOnCanvas, rasterSize, renderActionsToImage, setRenderedPaintImage]);
 
   useEffect(() => {
-    rebuildPaintImage(paths);
-  }, [paths, rebuildPaintImage, maskVersion]);
+    renderActionsToImage(pathsRef.current);
+  }, [maskVersion, renderActionsToImage]);
 
   const pushPath = useCallback((nextPath: DrawingPath) => {
-    setPaths((previousPaths) => {
-      const nextPaths = [...previousPaths, nextPath];
-      onPathsChangeRef.current?.(nextPaths);
-      return nextPaths;
-    });
+    const nextPaths = [...pathsRef.current, nextPath];
+    pathsRef.current = nextPaths;
+    redoStackRef.current = [];
+
+    appendActionToImage(nextPath);
+    setPaths(nextPaths);
     setRedoStack([]);
-  }, []);
+  }, [appendActionToImage]);
 
-  const handleBucketFill = useCallback((x: number, y: number) => {
-    if (toolRef.current !== 'bucket') return;
-    if (!regionLabelsRef.current) return;
+  const resolveRegionLabel = useCallback((x: number, y: number) => {
+    if (!regionLabelsRef.current) return null;
 
-    const regionLabel = findNearestRegionLabel(
+    return findNearestRegionLabel(
       x,
       y,
       regionLabelsRef.current,
       regionSizesRef.current,
       rasterSize,
     );
+  }, [rasterSize]);
+
+  const startCurrentDrawing = useCallback((type: 'stroke' | 'erase', x: number, y: number) => {
+    currentActionTypeRef.current = type;
+    currentPathSegmentsRef.current = [`M${x},${y}`];
+    lastPointRef.current = { x, y };
+
+    if (type === 'erase') {
+      setCurrentDrawing({
+        type: 'erase',
+        d: currentPathSegmentsRef.current[0],
+        paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
+        strokeWidth: strokeWidthRef.current,
+        opacity: opacityRef.current,
+      });
+      return;
+    }
+
+    setCurrentDrawing(null);
+  }, []);
+
+  const commitCurrentDrawing = useCallback(() => {
+    if (!currentActionTypeRef.current || currentPathSegmentsRef.current.length === 0) return;
+
+    const committedPath = currentPathSegmentsRef.current.length > 1
+      ? currentPathSegmentsRef.current.join(' ')
+      : `${currentPathSegmentsRef.current[0]} L${currentPathSegmentsRef.current[0].slice(1)}`;
+
+    pushPath({
+      type: currentActionTypeRef.current,
+      d: committedPath,
+      paint: currentActionTypeRef.current === 'erase'
+        ? makeSolidPaint('#FFFFFF', 'eraser-white')
+        : paintRef.current,
+      strokeWidth: strokeWidthRef.current,
+      opacity: opacityRef.current,
+    });
+  }, [pushPath]);
+
+  const clearCurrentDrawing = useCallback(() => {
+    currentActionTypeRef.current = null;
+    currentPathSegmentsRef.current = [];
+    lastPointRef.current = null;
+    setCurrentDrawing(null);
+  }, []);
+
+  useEffect(() => {
+    if (!drawingEnabled) {
+      clearCurrentDrawing();
+    }
+  }, [clearCurrentDrawing, drawingEnabled]);
+
+  const handleBucketFill = useCallback((x: number, y: number) => {
+    if (toolRef.current !== 'bucket') return;
+    if (!drawingEnabledRef.current) return;
+    const regionLabel = resolveRegionLabel(x, y);
     if (!regionLabel) return;
 
     pushPath({
@@ -937,13 +1064,29 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       paint: paintRef.current,
       opacity: opacityRef.current,
     });
-  }, [pushPath, rasterSize]);
+  }, [pushPath, resolveRegionLabel]);
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => toolRef.current !== 'bucket',
+      onStartShouldSetPanResponder: (event) => (
+        drawingEnabledRef.current && getActiveTouchCount(event.nativeEvent) <= 1
+      ),
+      onMoveShouldSetPanResponder: (event) => (
+        drawingEnabledRef.current
+        && toolRef.current !== 'bucket'
+        && getActiveTouchCount(event.nativeEvent) <= 1
+      ),
       onPanResponderGrant: (event) => {
+        if (!drawingEnabledRef.current) {
+          clearCurrentDrawing();
+          return;
+        }
+
+        if (getActiveTouchCount(event.nativeEvent) > 1) {
+          clearCurrentDrawing();
+          return;
+        }
+
         const { locationX, locationY } = event.nativeEvent;
 
         if (toolRef.current === 'bucket') {
@@ -955,103 +1098,100 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
         const x = Math.round(locationX * 100) / 100;
         const y = Math.round(locationY * 100) / 100;
-        currentPath.current = `M${x},${y}`;
-
-        setCurrentDrawing({
-          type: toolRef.current === 'eraser' ? 'erase' : 'stroke',
-          d: currentPath.current,
-          paint: toolRef.current === 'eraser' ? makeSolidPaint('#FFFFFF', 'eraser-white') : paintRef.current,
-          strokeWidth: strokeWidthRef.current,
-          opacity: opacityRef.current,
-        });
+        startCurrentDrawing(toolRef.current === 'eraser' ? 'erase' : 'stroke', x, y);
       },
       onPanResponderMove: (event) => {
-        if (toolRef.current !== 'brush' && toolRef.current !== 'eraser') return;
+        if (!drawingEnabledRef.current) {
+          clearCurrentDrawing();
+          return;
+        }
+
+        if (getActiveTouchCount(event.nativeEvent) > 1) {
+          clearCurrentDrawing();
+          return;
+        }
+
+        if (!currentActionTypeRef.current) return;
 
         const x = Math.round(event.nativeEvent.locationX * 100) / 100;
         const y = Math.round(event.nativeEvent.locationY * 100) / 100;
-        currentPath.current += ` L${x},${y}`;
+        const lastPoint = lastPointRef.current;
 
-        setCurrentDrawing({
-          type: toolRef.current === 'eraser' ? 'erase' : 'stroke',
-          d: currentPath.current,
-          paint: toolRef.current === 'eraser' ? makeSolidPaint('#FFFFFF', 'eraser-white') : paintRef.current,
-          strokeWidth: strokeWidthRef.current,
-          opacity: opacityRef.current,
-        });
+        if (lastPoint) {
+          const deltaX = x - lastPoint.x;
+          const deltaY = y - lastPoint.y;
+          if ((deltaX * deltaX) + (deltaY * deltaY) < 2.25) return;
+        }
+
+        currentPathSegmentsRef.current.push(`L${x},${y}`);
+        lastPointRef.current = { x, y };
+
+        if (currentActionTypeRef.current === 'erase') {
+          setCurrentDrawing({
+            type: 'erase',
+            d: currentPathSegmentsRef.current.join(' '),
+            paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
+            strokeWidth: strokeWidthRef.current,
+            opacity: opacityRef.current,
+          });
+        }
       },
       onPanResponderRelease: () => {
-        if (toolRef.current !== 'brush' && toolRef.current !== 'eraser') return;
-        if (!currentPath.current) return;
-
-        const committedPath = currentPath.current.includes(' L')
-          ? currentPath.current
-          : `${currentPath.current} L${currentPath.current.slice(1)}`;
-
-        pushPath({
-          type: toolRef.current === 'eraser' ? 'erase' : 'stroke',
-          d: committedPath,
-          paint: toolRef.current === 'eraser' ? makeSolidPaint('#FFFFFF', 'eraser-white') : paintRef.current,
-          strokeWidth: strokeWidthRef.current,
-          opacity: opacityRef.current,
-        });
-
-        currentPath.current = '';
-        setCurrentDrawing(null);
+        if (!currentActionTypeRef.current) return;
+        commitCurrentDrawing();
+        clearCurrentDrawing();
       },
       onPanResponderTerminate: () => {
-        currentPath.current = '';
-        setCurrentDrawing(null);
+        clearCurrentDrawing();
       },
     }),
   ).current;
 
   const undo = useCallback(() => {
-    setPaths((previousPaths) => {
-      if (previousPaths.length === 0) return previousPaths;
+    if (pathsRef.current.length === 0) return;
 
-      const nextPaths = [...previousPaths];
-      const removed = nextPaths.pop();
+    const nextPaths = [...pathsRef.current];
+    const removed = nextPaths.pop();
+    const nextRedo = removed
+      ? [...redoStackRef.current, removed]
+      : redoStackRef.current;
 
-      if (removed) {
-        setRedoStack((previousRedo) => [...previousRedo, removed]);
-      }
-
-      onPathsChangeRef.current?.(nextPaths);
-      return nextPaths;
-    });
-  }, []);
+    pathsRef.current = nextPaths;
+    redoStackRef.current = nextRedo;
+    setPaths(nextPaths);
+    setRedoStack(nextRedo);
+    renderActionsToImage(nextPaths);
+  }, [renderActionsToImage]);
 
   const redo = useCallback(() => {
-    setRedoStack((previousRedo) => {
-      if (previousRedo.length === 0) return previousRedo;
+    if (redoStackRef.current.length === 0) return;
 
-      const nextRedo = [...previousRedo];
-      const restored = nextRedo.pop();
+    const nextRedo = [...redoStackRef.current];
+    const restored = nextRedo.pop();
+    if (!restored) return;
 
-      if (restored) {
-        setPaths((previousPaths) => {
-          const nextPaths = [...previousPaths, restored];
-          onPathsChangeRef.current?.(nextPaths);
-          return nextPaths;
-        });
-      }
+    const nextPaths = [...pathsRef.current, restored];
 
-      return nextRedo;
-    });
-  }, []);
+    pathsRef.current = nextPaths;
+    redoStackRef.current = nextRedo;
+    setPaths(nextPaths);
+    setRedoStack(nextRedo);
+    renderActionsToImage(nextPaths);
+  }, [renderActionsToImage]);
 
   const clear = useCallback(() => {
-    setPaths((previousPaths) => {
-      if (previousPaths.length > 0) {
-        setRedoStack((previousRedo) => [...previousRedo, ...previousPaths]);
-      }
-      onPathsChangeRef.current?.([]);
-      return [];
-    });
-    setCurrentDrawing(null);
-    currentPath.current = '';
-  }, []);
+    const previousPaths = pathsRef.current;
+    const nextRedo = previousPaths.length > 0
+      ? [...redoStackRef.current, ...previousPaths]
+      : redoStackRef.current;
+
+    pathsRef.current = [];
+    redoStackRef.current = nextRedo;
+    setPaths([]);
+    setRedoStack(nextRedo);
+    setRenderedPaintImage(null);
+    clearCurrentDrawing();
+  }, [clearCurrentDrawing, setRenderedPaintImage]);
 
   const save = useCallback(async (): Promise<string | null> => {
     try {
@@ -1115,111 +1255,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   }, [canvasRef, imperativeHandle]);
 
   const currentPreview = useMemo(() => {
-    if (!currentDrawing?.d) return null;
-
-    const previewGradientId = `preview-${currentDrawing.paint.id}`;
+    if (!currentDrawing?.d || currentDrawing.type !== 'erase') return null;
 
     const renderStrokePath = () => {
-      if (currentDrawing.type === 'erase') {
-        return (
-          <Path
-            d={currentDrawing.d}
-            stroke="#FFFFFF"
-            strokeWidth={currentDrawing.strokeWidth}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            opacity={0.9}
-          />
-        );
-      }
-
-      if (currentDrawing.paint.kind === 'solid') {
-        return (
-          <Path
-            d={currentDrawing.d}
-            stroke={currentDrawing.paint.color}
-            strokeWidth={currentDrawing.strokeWidth}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            opacity={currentDrawing.opacity}
-          />
-        );
-      }
-
-      if (currentDrawing.paint.kind === 'layered-gradient') {
-        const overlay = currentDrawing.paint.overlays[0];
-        return (
-          <>
-            <Defs>
-              <LinearGradient
-                id={previewGradientId}
-                x1={`${overlay.start.x * 100}%`}
-                y1={`${overlay.start.y * 100}%`}
-                x2={`${overlay.end.x * 100}%`}
-                y2={`${overlay.end.y * 100}%`}
-              >
-                <Stop offset="0%" stopColor={overlay.colors[0]} />
-                <Stop offset="100%" stopColor={overlay.colors[1]} />
-              </LinearGradient>
-            </Defs>
-            <Path
-              d={currentDrawing.d}
-              stroke={currentDrawing.paint.baseColor}
-              strokeWidth={currentDrawing.strokeWidth}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-              opacity={currentDrawing.opacity}
-            />
-            <Path
-              d={currentDrawing.d}
-              stroke={`url(#${previewGradientId})`}
-              strokeWidth={currentDrawing.strokeWidth}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-              opacity={currentDrawing.opacity * (overlay.opacity ?? 1)}
-            />
-          </>
-        );
-      }
-
-      const GradientComponent =
-        currentDrawing.paint.kind === 'radial-gradient' ? RadialGradient : LinearGradient;
-
-      const gradientProps = currentDrawing.paint.kind === 'radial-gradient'
-        ? {
-            cx: `${currentDrawing.paint.center.x * 100}%`,
-            cy: `${currentDrawing.paint.center.y * 100}%`,
-            r: `${currentDrawing.paint.radius * 100}%`,
-          }
-        : {
-            x1: `${currentDrawing.paint.start.x * 100}%`,
-            y1: `${currentDrawing.paint.start.y * 100}%`,
-            x2: `${currentDrawing.paint.end.x * 100}%`,
-            y2: `${currentDrawing.paint.end.y * 100}%`,
-          };
-
       return (
-        <>
-          <Defs>
-            <GradientComponent id={previewGradientId} {...gradientProps}>
-              <Stop offset="0%" stopColor={currentDrawing.paint.colors[0]} />
-              <Stop offset="100%" stopColor={currentDrawing.paint.colors[1]} />
-            </GradientComponent>
-          </Defs>
-          <Path
-            d={currentDrawing.d}
-            stroke={`url(#${previewGradientId})`}
-            strokeWidth={currentDrawing.strokeWidth}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            opacity={currentDrawing.opacity}
-          />
-        </>
+        <Path
+          d={currentDrawing.d}
+          stroke="#FFFFFF"
+          strokeWidth={currentDrawing.strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={0.9}
+        />
       );
     };
 
