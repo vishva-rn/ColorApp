@@ -9,6 +9,7 @@ import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import {
   AlphaType,
   BlendMode,
+  BlurStyle,
   Canvas,
   ColorType,
   ImageFormat,
@@ -22,7 +23,6 @@ import {
   type SkPath,
 } from '@shopify/react-native-skia';
 import { File, Paths } from 'expo-file-system';
-import * as MediaLibrary from 'expo-media-library';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, PanResponder, View } from 'react-native';
 import Svg, {
@@ -36,8 +36,25 @@ type StrokeAction = {
   type: 'stroke' | 'erase';
   d: string;
   paint: DrawingPaint;
+  brushStyle: 'default' | 'pencil' | 'paint-brush' | 'marker' | 'glow-pen' | 'crayon' | 'paint' | 'ball-pen' | 'sketch-pen';
   strokeWidth: number;
   opacity: number;
+};
+
+type ToolBrushStyle = StrokeAction['brushStyle'];
+
+type ToolRenderConfig = {
+  opacity: number;
+  blur: number;
+  spacing: number;
+  sizeJitter: number;
+  jitter?: number;
+  blendMode?: BlendMode;
+  cap: StrokeCap;
+  join: StrokeJoin;
+  haloOpacity?: number;
+  haloBlur?: number;
+  haloBlendMode?: BlendMode;
 };
 
 type FillAction = {
@@ -95,9 +112,11 @@ interface DrawingCanvasProps {
   paint?: DrawingPaint;
   strokeWidth?: number;
   opacity?: number;
+  brushStyle?: 'default' | 'pencil' | 'paint-brush' | 'marker' | 'glow-pen' | 'crayon' | 'paint' | 'ball-pen' | 'sketch-pen';
   tool?: 'brush' | 'bucket' | 'eraser';
   drawingEnabled?: boolean;
   svgUrl?: string;
+  initialPaths?: DrawingPath[];
   onPathsChange?: (paths: DrawingPath[]) => void;
   canvasRef?: React.MutableRefObject<DrawingCanvasHandle | null>;
 }
@@ -443,7 +462,173 @@ function makeSkiaShaderFromPaint(paint: DrawingPaint, canvasSize: number) {
   );
 }
 
-function drawGradientStroke(
+const TOOL_RENDER_CONFIGS: Record<ToolBrushStyle, ToolRenderConfig> = {
+  default: {
+    opacity: 1,
+    blur: 0,
+    spacing: 0.08,
+    sizeJitter: 0.04,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+  },
+  pencil: {
+    opacity: 0.95,
+    blur: 0,
+    spacing: 0.06,
+    sizeJitter: 0.08,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+  },
+  'paint-brush': {
+    opacity: 1,
+    blur: 0,
+    spacing: 0.08,
+    sizeJitter: 0.1,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+  },
+  marker: {
+    opacity: 0.65,
+    blur: 1,
+    spacing: 0.04,
+    sizeJitter: 0.02,
+    blendMode: BlendMode.Multiply,
+    cap: StrokeCap.Square,
+    join: StrokeJoin.Round,
+  },
+  'glow-pen': {
+    opacity: 0.9,
+    blur: 0,
+    spacing: 0.05,
+    sizeJitter: 0.03,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+    haloOpacity: 0.22,
+    haloBlur: 6,
+  },
+  crayon: {
+    opacity: 0.4,
+    blur: 0,
+    spacing: 0.12,
+    sizeJitter: 0.12,
+    jitter: 0.2,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+  },
+  paint: {
+    opacity: 0.9,
+    blur: 1.5,
+    spacing: 0.05,
+    sizeJitter: 0.05,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+  },
+  'ball-pen': {
+    opacity: 1,
+    blur: 0,
+    spacing: 0.02,
+    sizeJitter: 0,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+  },
+  'sketch-pen': {
+    opacity: 0.85,
+    blur: 0.5,
+    spacing: 0.06,
+    sizeJitter: 0.15,
+    jitter: 0.1,
+    cap: StrokeCap.Round,
+    join: StrokeJoin.Round,
+  },
+};
+
+function getToolRenderConfig(brushStyle: ToolBrushStyle): ToolRenderConfig {
+  return TOOL_RENDER_CONFIGS[brushStyle] ?? TOOL_RENDER_CONFIGS.default;
+}
+
+function getPointSpacingDistance(brushStyle: ToolBrushStyle, strokeWidth: number): number {
+  const spacing = getToolRenderConfig(brushStyle).spacing;
+  return Math.max(strokeWidth * spacing * 2.5, 1);
+}
+
+function createStrokePaint(
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+  options?: {
+    blendMode?: BlendMode;
+    blur?: number;
+    cap?: StrokeCap;
+    join?: StrokeJoin;
+  },
+) {
+  const strokePaint = Skia.Paint();
+  strokePaint.setAntiAlias(true);
+  strokePaint.setStyle(PaintStyle.Stroke);
+  strokePaint.setStrokeCap(options?.cap ?? StrokeCap.Round);
+  strokePaint.setStrokeJoin(options?.join ?? StrokeJoin.Round);
+  strokePaint.setStrokeWidth(strokeWidth);
+  strokePaint.setAlphaf(opacity);
+  if (typeof options?.blendMode === 'number') {
+    strokePaint.setBlendMode(options.blendMode);
+  }
+  if (options?.blur && options.blur > 0) {
+    strokePaint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, options.blur, true));
+  }
+
+  if (pathPaint.kind === 'solid') {
+    strokePaint.setColor(Skia.Color(pathPaint.color));
+    return strokePaint;
+  }
+
+  if (pathPaint.kind === 'layered-gradient') {
+    strokePaint.setColor(Skia.Color(pathPaint.baseColor));
+    return strokePaint;
+  }
+
+  strokePaint.setShader(makeSkiaShaderFromPaint(pathPaint, canvasSize));
+  return strokePaint;
+}
+
+function drawPencilStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+) {
+  if (pathPaint.kind !== 'solid') {
+    return;
+  }
+
+  const config = TOOL_RENDER_CONFIGS.pencil;
+  const graphiteColor = Skia.Color(pathPaint.color);
+  const layeredPasses = [
+    { widthMultiplier: 1.45, alpha: 0.14, offsetX: 0, offsetY: 0 },
+    { widthMultiplier: 1.1, alpha: 0.12, offsetX: 0.35, offsetY: 0.25 },
+    { widthMultiplier: 0.95, alpha: 0.3, offsetX: -0.2, offsetY: 0.15 },
+    { widthMultiplier: 0.6, alpha: 0.18, offsetX: 0, offsetY: 0 },
+  ];
+
+  layeredPasses.forEach((pass) => {
+    const pencilPaint = Skia.Paint();
+    pencilPaint.setAntiAlias(true);
+    pencilPaint.setStyle(PaintStyle.Stroke);
+    pencilPaint.setStrokeCap(StrokeCap.Round);
+    pencilPaint.setStrokeJoin(StrokeJoin.Round);
+    pencilPaint.setStrokeWidth(Math.max(strokeWidth * pass.widthMultiplier, 0.75));
+    pencilPaint.setAlphaf(Math.min(Math.max(opacity * config.opacity * pass.alpha, 0), 1));
+    pencilPaint.setColor(graphiteColor);
+
+    canvas.save();
+    canvas.translate(pass.offsetX, pass.offsetY);
+    canvas.drawPath(skPath, pencilPaint);
+    canvas.restore();
+  });
+}
+
+function drawPaintBrushStroke(
   canvas: any,
   skPath: SkPath,
   pathPaint: DrawingPaint,
@@ -451,15 +636,341 @@ function drawGradientStroke(
   opacity: number,
   canvasSize: number,
 ) {
+  const config = TOOL_RENDER_CONFIGS['paint-brush'];
+  const layeredPasses = [
+    { widthMultiplier: 1 + (config.sizeJitter * 1.4), alpha: 0.22, offsetX: 0, offsetY: 0 },
+    { widthMultiplier: 1 + (config.sizeJitter * 0.5), alpha: 0.32, offsetX: 0.28, offsetY: 0.16 },
+    { widthMultiplier: 1 - (config.sizeJitter * 0.3), alpha: 0.46, offsetX: -0.18, offsetY: 0.12 },
+    { widthMultiplier: 1 - (config.sizeJitter * 1.8), alpha: 0.24, offsetX: 0.12, offsetY: -0.12 },
+  ];
+
+  layeredPasses.forEach((pass) => {
+    const brushPaint = createStrokePaint(
+      pathPaint,
+      Math.max(strokeWidth * pass.widthMultiplier, 1),
+      Math.min(Math.max(opacity * config.opacity * pass.alpha, 0), 1),
+      canvasSize,
+      {
+        blendMode: config.blendMode,
+        blur: config.blur,
+        cap: config.cap,
+        join: config.join,
+      },
+    );
+
+    canvas.save();
+    canvas.translate(pass.offsetX, pass.offsetY);
+    canvas.drawPath(skPath, brushPaint);
+    canvas.restore();
+  });
+
+  if (pathPaint.kind === 'layered-gradient') {
+    for (const overlay of pathPaint.overlays) {
+      const overlayPaint = Skia.Paint();
+      overlayPaint.setAntiAlias(true);
+      overlayPaint.setStyle(PaintStyle.Stroke);
+      overlayPaint.setStrokeCap(config.cap);
+      overlayPaint.setStrokeJoin(config.join);
+      overlayPaint.setStrokeWidth(Math.max(strokeWidth * 0.95, 1));
+      overlayPaint.setAlphaf(Math.min(Math.max(opacity * (overlay.opacity ?? 1) * 0.4, 0), 1));
+      overlayPaint.setShader(
+        Skia.Shader.MakeLinearGradient(
+          {
+            x: overlay.start.x * canvasSize,
+            y: overlay.start.y * canvasSize,
+          },
+          {
+            x: overlay.end.x * canvasSize,
+            y: overlay.end.y * canvasSize,
+          },
+          overlay.colors.map((color) => Skia.Color(color)),
+          null,
+          TileMode.Clamp,
+        ),
+      );
+      canvas.drawPath(skPath, overlayPaint);
+    }
+  }
+}
+
+function drawMarkerStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  const config = TOOL_RENDER_CONFIGS.marker;
+  const basePaint = createStrokePaint(
+    pathPaint,
+    Math.max(strokeWidth * (1 + config.sizeJitter), 1),
+    Math.min(Math.max(opacity * config.opacity, 0), 1),
+    canvasSize,
+    {
+      blendMode: config.blendMode,
+      blur: config.blur,
+      cap: config.cap,
+      join: config.join,
+    },
+  );
+  canvas.drawPath(skPath, basePaint);
+
+  const corePaint = createStrokePaint(
+    pathPaint,
+    Math.max(strokeWidth * (0.88 - config.sizeJitter), 1),
+    Math.min(Math.max(opacity * config.opacity * 0.48, 0), 1),
+    canvasSize,
+    {
+      blendMode: config.blendMode,
+      blur: 0,
+      cap: config.cap,
+      join: config.join,
+    },
+  );
+  canvas.drawPath(skPath, corePaint);
+}
+
+function drawGlowPenStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  const config = TOOL_RENDER_CONFIGS['glow-pen'];
+  const haloPaint = createStrokePaint(
+    pathPaint,
+    Math.max(strokeWidth * 1.4, 1),
+    Math.min(Math.max(opacity * (config.haloOpacity ?? 0.35), 0), 1),
+    canvasSize,
+    {
+      blendMode: config.haloBlendMode,
+      blur: Math.max((config.haloBlur ?? 8) * (strokeWidth / 10), 1),
+      cap: config.cap,
+      join: config.join,
+    },
+  );
+  canvas.drawPath(skPath, haloPaint);
+
+  const corePaint = createStrokePaint(
+    pathPaint,
+    Math.max(strokeWidth * 0.92, 1),
+    Math.min(Math.max(opacity * config.opacity, 0), 1),
+    canvasSize,
+    {
+      blendMode: config.blendMode,
+      blur: config.blur,
+      cap: config.cap,
+      join: config.join,
+    },
+  );
+  canvas.drawPath(skPath, corePaint);
+}
+
+function drawCrayonStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  const config = TOOL_RENDER_CONFIGS.crayon;
+  const jitter = Math.max(strokeWidth * (config.jitter ?? 0.2) * 0.08, 0.18);
+  const grainPasses = [
+    { widthMultiplier: 1.05, alpha: 0.55, offsetX: 0, offsetY: 0 },
+    { widthMultiplier: 0.92, alpha: 0.42, offsetX: jitter, offsetY: -jitter * 0.35 },
+    { widthMultiplier: 0.86, alpha: 0.32, offsetX: -jitter * 0.8, offsetY: jitter * 0.45 },
+    { widthMultiplier: 0.76, alpha: 0.24, offsetX: jitter * 0.5, offsetY: jitter * 0.7 },
+  ];
+
+  grainPasses.forEach((pass) => {
+    const crayonPaint = createStrokePaint(
+      pathPaint,
+      Math.max(strokeWidth * pass.widthMultiplier, 0.8),
+      Math.min(Math.max(opacity * config.opacity * pass.alpha, 0), 1),
+      canvasSize,
+      {
+        blendMode: config.blendMode,
+        blur: config.blur,
+        cap: config.cap,
+        join: config.join,
+      },
+    );
+
+    canvas.save();
+    canvas.translate(pass.offsetX, pass.offsetY);
+    canvas.drawPath(skPath, crayonPaint);
+    canvas.restore();
+  });
+}
+
+function drawPaintStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  const config = TOOL_RENDER_CONFIGS.paint;
+  const passes = [
+    { widthMultiplier: 1 + config.sizeJitter, alpha: 0.38, blur: config.blur + 0.6 },
+    { widthMultiplier: 1, alpha: 0.72, blur: config.blur },
+    { widthMultiplier: 1 - config.sizeJitter, alpha: 0.28, blur: config.blur * 0.6 },
+  ];
+
+  passes.forEach((pass) => {
+    const paintStroke = createStrokePaint(
+      pathPaint,
+      Math.max(strokeWidth * pass.widthMultiplier, 1),
+      Math.min(Math.max(opacity * config.opacity * pass.alpha, 0), 1),
+      canvasSize,
+      {
+        blendMode: config.blendMode,
+        blur: pass.blur,
+        cap: config.cap,
+        join: config.join,
+      },
+    );
+    canvas.drawPath(skPath, paintStroke);
+  });
+}
+
+function drawBallPenStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  const config = TOOL_RENDER_CONFIGS['ball-pen'];
+  const basePaint = createStrokePaint(
+    pathPaint,
+    Math.max(strokeWidth, 0.8),
+    Math.min(Math.max(opacity * config.opacity, 0), 1),
+    canvasSize,
+    {
+      blendMode: config.blendMode,
+      blur: config.blur,
+      cap: config.cap,
+      join: config.join,
+    },
+  );
+  canvas.drawPath(skPath, basePaint);
+
+  const pooledCorePaint = createStrokePaint(
+    pathPaint,
+    Math.max(strokeWidth * 0.55, 0.6),
+    Math.min(Math.max(opacity * config.opacity * 0.18, 0), 1),
+    canvasSize,
+    {
+      blendMode: config.blendMode,
+      blur: 0,
+      cap: config.cap,
+      join: config.join,
+    },
+  );
+  canvas.drawPath(skPath, pooledCorePaint);
+}
+
+function drawSketchPenStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  const config = TOOL_RENDER_CONFIGS['sketch-pen'];
+  const jitter = Math.max(strokeWidth * (config.jitter ?? 0.1) * 0.08, 0.16);
+  const sketchPasses = [
+    { widthMultiplier: 1 + config.sizeJitter, alpha: 0.52, offsetX: 0, offsetY: 0, blur: config.blur },
+    { widthMultiplier: 1 - (config.sizeJitter * 0.45), alpha: 0.28, offsetX: jitter, offsetY: -jitter * 0.4, blur: config.blur * 0.6 },
+    { widthMultiplier: 1 - (config.sizeJitter * 0.85), alpha: 0.22, offsetX: -jitter * 0.75, offsetY: jitter * 0.5, blur: config.blur * 0.4 },
+  ];
+
+  sketchPasses.forEach((pass) => {
+    const sketchPaint = createStrokePaint(
+      pathPaint,
+      Math.max(strokeWidth * pass.widthMultiplier, 0.8),
+      Math.min(Math.max(opacity * config.opacity * pass.alpha, 0), 1),
+      canvasSize,
+      {
+        blendMode: config.blendMode,
+        blur: pass.blur,
+        cap: config.cap,
+        join: config.join,
+      },
+    );
+
+    canvas.save();
+    canvas.translate(pass.offsetX, pass.offsetY);
+    canvas.drawPath(skPath, sketchPaint);
+    canvas.restore();
+  });
+}
+
+function drawGradientStroke(
+  canvas: any,
+  skPath: SkPath,
+  pathPaint: DrawingPaint,
+  brushStyle: 'default' | 'pencil' | 'paint-brush' | 'marker' | 'glow-pen' | 'crayon' | 'paint' | 'ball-pen' | 'sketch-pen',
+  strokeWidth: number,
+  opacity: number,
+  canvasSize: number,
+) {
+  const defaultConfig = getToolRenderConfig(brushStyle);
+  if (brushStyle === 'pencil' && pathPaint.kind === 'solid') {
+    drawPencilStroke(canvas, skPath, pathPaint, strokeWidth, opacity);
+    return;
+  }
+
+  if (brushStyle === 'paint-brush') {
+    drawPaintBrushStroke(canvas, skPath, pathPaint, strokeWidth, opacity, canvasSize);
+    return;
+  }
+
+  if (brushStyle === 'marker') {
+    drawMarkerStroke(canvas, skPath, pathPaint, strokeWidth, opacity, canvasSize);
+    return;
+  }
+
+  if (brushStyle === 'glow-pen') {
+    drawGlowPenStroke(canvas, skPath, pathPaint, strokeWidth, opacity, canvasSize);
+    return;
+  }
+
+  if (brushStyle === 'crayon') {
+    drawCrayonStroke(canvas, skPath, pathPaint, strokeWidth, opacity, canvasSize);
+    return;
+  }
+
+  if (brushStyle === 'paint') {
+    drawPaintStroke(canvas, skPath, pathPaint, strokeWidth, opacity, canvasSize);
+    return;
+  }
+
+  if (brushStyle === 'ball-pen') {
+    drawBallPenStroke(canvas, skPath, pathPaint, strokeWidth, opacity, canvasSize);
+    return;
+  }
+
+  if (brushStyle === 'sketch-pen') {
+    drawSketchPenStroke(canvas, skPath, pathPaint, strokeWidth, opacity, canvasSize);
+    return;
+  }
+
   if (pathPaint.kind === 'solid') {
-    const strokePaint = Skia.Paint();
-    strokePaint.setAntiAlias(true);
-    strokePaint.setStyle(PaintStyle.Stroke);
-    strokePaint.setStrokeCap(StrokeCap.Round);
-    strokePaint.setStrokeJoin(StrokeJoin.Round);
-    strokePaint.setStrokeWidth(strokeWidth);
-    strokePaint.setAlphaf(opacity);
-    strokePaint.setColor(Skia.Color(pathPaint.color));
+    const strokePaint = createStrokePaint(pathPaint, strokeWidth, opacity * defaultConfig.opacity, canvasSize, {
+      blendMode: defaultConfig.blendMode,
+      blur: defaultConfig.blur,
+      cap: defaultConfig.cap,
+      join: defaultConfig.join,
+    });
     canvas.drawPath(skPath, strokePaint);
     return;
   }
@@ -468,10 +979,13 @@ function drawGradientStroke(
     const basePaint = Skia.Paint();
     basePaint.setAntiAlias(true);
     basePaint.setStyle(PaintStyle.Stroke);
-    basePaint.setStrokeCap(StrokeCap.Round);
-    basePaint.setStrokeJoin(StrokeJoin.Round);
+    basePaint.setStrokeCap(defaultConfig.cap);
+    basePaint.setStrokeJoin(defaultConfig.join);
     basePaint.setStrokeWidth(strokeWidth);
-    basePaint.setAlphaf(opacity);
+    basePaint.setAlphaf(opacity * defaultConfig.opacity);
+    if (typeof defaultConfig.blendMode === 'number') {
+      basePaint.setBlendMode(defaultConfig.blendMode);
+    }
     basePaint.setColor(Skia.Color(pathPaint.baseColor));
     canvas.drawPath(skPath, basePaint);
 
@@ -479,10 +993,13 @@ function drawGradientStroke(
       const overlayPaint = Skia.Paint();
       overlayPaint.setAntiAlias(true);
       overlayPaint.setStyle(PaintStyle.Stroke);
-      overlayPaint.setStrokeCap(StrokeCap.Round);
-      overlayPaint.setStrokeJoin(StrokeJoin.Round);
+      overlayPaint.setStrokeCap(defaultConfig.cap);
+      overlayPaint.setStrokeJoin(defaultConfig.join);
       overlayPaint.setStrokeWidth(strokeWidth);
-      overlayPaint.setAlphaf(opacity * (overlay.opacity ?? 1));
+      overlayPaint.setAlphaf(opacity * defaultConfig.opacity * (overlay.opacity ?? 1));
+      if (typeof defaultConfig.blendMode === 'number') {
+        overlayPaint.setBlendMode(defaultConfig.blendMode);
+      }
       overlayPaint.setShader(
         Skia.Shader.MakeLinearGradient(
           {
@@ -506,10 +1023,16 @@ function drawGradientStroke(
   const gradientPaint = Skia.Paint();
   gradientPaint.setAntiAlias(true);
   gradientPaint.setStyle(PaintStyle.Stroke);
-  gradientPaint.setStrokeCap(StrokeCap.Round);
-  gradientPaint.setStrokeJoin(StrokeJoin.Round);
+  gradientPaint.setStrokeCap(defaultConfig.cap);
+  gradientPaint.setStrokeJoin(defaultConfig.join);
   gradientPaint.setStrokeWidth(strokeWidth);
-  gradientPaint.setAlphaf(opacity);
+  gradientPaint.setAlphaf(opacity * defaultConfig.opacity);
+  if (typeof defaultConfig.blendMode === 'number') {
+    gradientPaint.setBlendMode(defaultConfig.blendMode);
+  }
+  if (defaultConfig.blur > 0) {
+    gradientPaint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, defaultConfig.blur, true));
+  }
   gradientPaint.setShader(makeSkiaShaderFromPaint(pathPaint, canvasSize));
   canvas.drawPath(skPath, gradientPaint);
 }
@@ -764,9 +1287,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   paint,
   strokeWidth = 4,
   opacity = 1,
+  brushStyle = 'default',
   tool = 'brush',
   drawingEnabled = true,
   svgUrl,
+  initialPaths,
   onPathsChange,
   canvasRef,
 }) => {
@@ -793,6 +1318,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const paintRef = useRef<DrawingPaint>(resolvedPaint);
   const strokeWidthRef = useRef(strokeWidth);
   const opacityRef = useRef(opacity);
+  const brushStyleRef = useRef<'default' | 'pencil' | 'paint-brush' | 'marker' | 'glow-pen' | 'crayon' | 'paint' | 'ball-pen' | 'sketch-pen'>(brushStyle);
   const toolRef = useRef(tool);
   const drawingEnabledRef = useRef(drawingEnabled);
   const onPathsChangeRef = useRef(onPathsChange);
@@ -803,6 +1329,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   useEffect(() => { paintRef.current = resolvedPaint; }, [resolvedPaint]);
   useEffect(() => { strokeWidthRef.current = strokeWidth; }, [strokeWidth]);
   useEffect(() => { opacityRef.current = opacity; }, [opacity]);
+  useEffect(() => { brushStyleRef.current = brushStyle; }, [brushStyle]);
   useEffect(() => { toolRef.current = tool; }, [tool]);
   useEffect(() => { drawingEnabledRef.current = drawingEnabled; }, [drawingEnabled]);
   useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
@@ -810,6 +1337,44 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   useEffect(() => { redoStackRef.current = redoStack; }, [redoStack]);
   useEffect(() => { paintImageRef.current = paintImage; }, [paintImage]);
   useEffect(() => { onPathsChangeRef.current?.(paths); }, [paths]);
+  useEffect(() => {
+    if (!initialPaths || initialPaths.length === 0) return;
+    if (pathsRef.current.length > 0) return;
+
+    pathsRef.current = initialPaths;
+    redoStackRef.current = [];
+    setPaths(initialPaths);
+    setRedoStack([]);
+  }, [initialPaths]);
+
+  useEffect(() => {
+    if (!currentActionTypeRef.current || currentPathSegmentsRef.current.length === 0) return;
+
+    const nextPath = currentPathSegmentsRef.current.length > 1
+      ? currentPathSegmentsRef.current.join(' ')
+      : currentPathSegmentsRef.current[0];
+
+    if (currentActionTypeRef.current === 'erase') {
+      setCurrentDrawing({
+        type: 'erase',
+        d: nextPath,
+        paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
+        brushStyle: 'default',
+        strokeWidth: strokeWidthRef.current,
+        opacity: opacityRef.current,
+      });
+      return;
+    }
+
+    setCurrentDrawing({
+      type: 'stroke',
+      d: nextPath,
+      paint: paintRef.current,
+      brushStyle: brushStyleRef.current,
+      strokeWidth: strokeWidthRef.current,
+      opacity: opacityRef.current,
+    });
+  }, [brushStyle, opacity, resolvedPaint, strokeWidth]);
 
   useEffect(() => {
     if (!svgUrl) {
@@ -926,7 +1491,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       return;
     }
 
-    drawGradientStroke(canvas, skPath, action.paint, action.strokeWidth, action.opacity, rasterSize);
+    drawGradientStroke(
+      canvas,
+      skPath,
+      action.paint,
+      action.brushStyle,
+      action.strokeWidth,
+      action.opacity,
+      rasterSize,
+    );
   }, [getExpandedRegionMask, rasterSize]);
 
   const renderActionsToImage = useCallback((actions: DrawingPath[]) => {
@@ -1012,13 +1585,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         type: 'erase',
         d: currentPathSegmentsRef.current[0],
         paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
+        brushStyle: 'default',
         strokeWidth: strokeWidthRef.current,
         opacity: opacityRef.current,
       });
       return;
     }
 
-    setCurrentDrawing(null);
+    setCurrentDrawing({
+      type: 'stroke',
+      d: currentPathSegmentsRef.current[0],
+      paint: paintRef.current,
+      brushStyle: brushStyleRef.current,
+      strokeWidth: strokeWidthRef.current,
+      opacity: opacityRef.current,
+    });
   }, []);
 
   const commitCurrentDrawing = useCallback(() => {
@@ -1034,6 +1615,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       paint: currentActionTypeRef.current === 'erase'
         ? makeSolidPaint('#FFFFFF', 'eraser-white')
         : paintRef.current,
+      brushStyle: currentActionTypeRef.current === 'erase'
+        ? 'default'
+        : brushStyleRef.current,
       strokeWidth: strokeWidthRef.current,
       opacity: opacityRef.current,
     });
@@ -1120,7 +1704,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         if (lastPoint) {
           const deltaX = x - lastPoint.x;
           const deltaY = y - lastPoint.y;
-          if ((deltaX * deltaX) + (deltaY * deltaY) < 2.25) return;
+          const pointSpacing = currentActionTypeRef.current === 'erase'
+            ? Math.max(strokeWidthRef.current * 0.2, 1)
+            : getPointSpacingDistance(brushStyleRef.current, strokeWidthRef.current);
+          if ((deltaX * deltaX) + (deltaY * deltaY) < (pointSpacing * pointSpacing)) return;
         }
 
         currentPathSegmentsRef.current.push(`L${x},${y}`);
@@ -1131,10 +1718,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             type: 'erase',
             d: currentPathSegmentsRef.current.join(' '),
             paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
+            brushStyle: 'default',
             strokeWidth: strokeWidthRef.current,
             opacity: opacityRef.current,
           });
+          return;
         }
+
+        setCurrentDrawing({
+          type: 'stroke',
+          d: currentPathSegmentsRef.current.join(' '),
+          paint: paintRef.current,
+          brushStyle: brushStyleRef.current,
+          strokeWidth: strokeWidthRef.current,
+          opacity: opacityRef.current,
+        });
       },
       onPanResponderRelease: () => {
         if (!currentActionTypeRef.current) return;
@@ -1195,9 +1793,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   const save = useCallback(async (): Promise<string | null> => {
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') return null;
-
       const surface = Skia.Surface.MakeOffscreen(rasterSize, rasterSize) ?? Skia.Surface.Make(rasterSize, rasterSize);
       if (!surface) return null;
 
@@ -1222,11 +1817,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       const encodedBytes = rasterSnapshot.encodeToBytes(ImageFormat.PNG, 100);
       if (!encodedBytes?.length) return null;
 
-      const file = new File(Paths.cache, `coloring_${Date.now()}.png`);
+      const file = new File(Paths.document, 'drawings', `coloring_${Date.now()}.png`);
       file.create({ intermediates: true, overwrite: true });
       file.write(encodedBytes);
-
-      await MediaLibrary.saveToLibraryAsync(file.uri);
       return file.uri;
     } catch (error) {
       console.error('[DrawingCanvas] Save error:', error);
@@ -1255,21 +1848,41 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   }, [canvasRef, imperativeHandle]);
 
   const currentPreview = useMemo(() => {
-    if (!currentDrawing?.d || currentDrawing.type !== 'erase') return null;
+    if (!currentDrawing?.d) return null;
 
-    const renderStrokePath = () => {
+    if (currentDrawing.type === 'stroke') {
+      const surface = Skia.Surface.Make(rasterSize, rasterSize);
+      if (!surface) return null;
+
+      const canvas = surface.getCanvas();
+      canvas.clear(Skia.Color('transparent'));
+      drawActionOnCanvas(canvas, currentDrawing);
+      surface.flush();
+
+      const snapshot = surface.makeImageSnapshot();
+      const rasterPreview = snapshot.makeNonTextureImage() ?? snapshot;
+
       return (
-        <Path
-          d={currentDrawing.d}
-          stroke="#FFFFFF"
-          strokeWidth={currentDrawing.strokeWidth}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-          opacity={0.9}
-        />
+        <Canvas
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: canvasSize,
+            height: canvasSize,
+          }}
+          pointerEvents="none"
+        >
+          <SkiaImage
+            image={rasterPreview}
+            x={0}
+            y={0}
+            width={canvasSize}
+            height={canvasSize}
+          />
+        </Canvas>
       );
-    };
+    }
 
     return (
       <Svg
@@ -1279,10 +1892,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         style={{ position: 'absolute', top: 0, left: 0 }}
         pointerEvents="none"
       >
-        {renderStrokePath()}
+        <Path
+          d={currentDrawing.d}
+          stroke="#FFFFFF"
+          strokeWidth={currentDrawing.strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={0.9}
+        />
       </Svg>
     );
-  }, [canvasSize, currentDrawing]);
+  }, [canvasSize, currentDrawing, drawActionOnCanvas, rasterSize]);
 
   return (
     <View

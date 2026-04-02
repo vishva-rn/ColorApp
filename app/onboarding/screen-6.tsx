@@ -27,6 +27,7 @@ import SketchPenSvg from '../../assets/images/svgicons/SketchPen.svg';
 
 interface Props {
   onNext: () => void;
+  onSelectBrush?: (value: string) => void;
 }
 
 const BRUSH_OPTIONS = [
@@ -40,8 +41,13 @@ const BRUSH_OPTIONS = [
   { id: 'sketch_pen', label: 'Sketch Pen', icon: SketchPenSvg },
 ];
 
-export default function Onboarding6({ onNext }: Props) {
+export default function Onboarding6({ onNext, onSelectBrush }: Props) {
   const [selected, setSelected] = useState<string>('pencil');
+
+  const handleNext = () => {
+    onSelectBrush?.(selected);
+    onNext();
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-screen">
@@ -87,7 +93,7 @@ export default function Onboarding6({ onNext }: Props) {
       </ScrollView>
 
       {/* Footer Next Button - Positioned Absolute in component */}
-      <OnboardingNextButton onPress={onNext} />
+      <OnboardingNextButton onPress={handleNext} />
     </SafeAreaView>
   );
 }

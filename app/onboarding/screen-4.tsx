@@ -30,6 +30,7 @@ import ComicsSvg from '../../assets/images/svgicons/comics.svg';
 
 interface Props {
   onNext: () => void;
+  onSelectCategory?: (value: string) => void;
 }
 
 const ART_CATEGORIES = [
@@ -45,8 +46,13 @@ const ART_CATEGORIES = [
   { id: 'comics', label: 'Comics', icon: ComicsSvg },
 ];
 
-export default function Onboarding4({ onNext }: Props) {
+export default function Onboarding4({ onNext, onSelectCategory }: Props) {
   const [selected, setSelected] = useState<string>('people');
+
+  const handleNext = () => {
+    onSelectCategory?.(selected);
+    onNext();
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-screen">
@@ -88,7 +94,7 @@ export default function Onboarding4({ onNext }: Props) {
       </ScrollView>
 
       {/* Footer Next Button - Positioned Absolute in component */}
-      <OnboardingNextButton onPress={onNext} />
+      <OnboardingNextButton onPress={handleNext} />
     </SafeAreaView>
   );
 }

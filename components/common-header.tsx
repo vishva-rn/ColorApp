@@ -1,7 +1,6 @@
 import React from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import GoProSvg from '../assets/images/svgicons/go-pro.svg';
 
 type CommonHeaderProps = {
   eyebrow: string;
@@ -33,14 +32,14 @@ export function CommonHeader({
         </Text>
       </View>
 
-      <TouchableOpacity
+      {/* <TouchableOpacity
         onPress={onActionPress}
         activeOpacity={0.85}
         className="flex-row items-center bg-[#3F3A37] rounded-full px-3.5 py-2 gap-1.5"
       >
         <GoProSvg width={18} height={18} />
         <Text className="text-white text-[11px] font-poppins-medium">{actionLabel}</Text>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
     </View>
   );
 }

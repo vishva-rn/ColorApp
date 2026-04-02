@@ -26,6 +26,7 @@ import RainbowSvg from '../../assets/images/svgicons/Rainbow.svg';
 
 interface Props {
   onNext: () => void;
+  onSelectPalette?: (value: string) => void;
 }
 
 const PALETTE_OPTIONS = [
@@ -37,8 +38,13 @@ const PALETTE_OPTIONS = [
   { id: 'makeup', label: 'Make Up', icon: MakeUpSvg },
 ];
 
-export default function Onboarding5({ onNext }: Props) {
+export default function Onboarding5({ onNext, onSelectPalette }: Props) {
   const [selected, setSelected] = useState<string>('pastel');
+
+  const handleNext = () => {
+    onSelectPalette?.(selected);
+    onNext();
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-screen">
@@ -84,7 +90,7 @@ export default function Onboarding5({ onNext }: Props) {
       </ScrollView>
 
       {/* Footer Next Button - Positioned Absolute in component */}
-      <OnboardingNextButton onPress={onNext} />
+      <OnboardingNextButton onPress={handleNext} />
     </SafeAreaView>
   );
 }

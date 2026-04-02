@@ -21,6 +21,9 @@ const MAPPING = {
   'arrow.uturn.backward': 'undo',
   'arrow.uturn.forward': 'redo',
   'trash': 'delete',
+  'message.fill': 'feedback',
+  'doc.text': 'description',
+  'star.fill': 'star',
   'paintbrush.fill': 'brush',
   'eraser.fill': 'backspace',
 } as const satisfies Record<string, MaterialIconName>;

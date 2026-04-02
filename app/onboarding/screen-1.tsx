@@ -26,7 +26,7 @@ export default function Onboarding1({ onNext }: Props) {
       {/* Header - Welcome message */}
       <View className="items-center pt-10">
         <Text className="text-[14px] text-gray-400 font-poppins">
-          Welcome to "App Name"
+          Welcome to PixelColor
         </Text>
       </View>
 

@@ -13,7 +13,7 @@ export default function CreateTabScreen() {
       <CommonHeader eyebrow="Art Playground" title="Create" />
 
       <View className="flex-1 px-6 pt-1">
-        <Link href="/drawing" asChild>
+        <Link href="/create/text-to-draw" asChild>
           <TouchableOpacity
             activeOpacity={0.9}
             className="bg-white rounded-[18px] px-5 pt-5 pb-0 mb-4 overflow-hidden"
@@ -37,7 +37,7 @@ export default function CreateTabScreen() {
           </TouchableOpacity>
         </Link>
 
-        <Link href="/drawing" asChild>
+        <Link href="/create/photo-to-draw" asChild>
           <TouchableOpacity
             activeOpacity={0.9}
             className="bg-white rounded-[18px] px-5 pt-5 pb-0 overflow-hidden"

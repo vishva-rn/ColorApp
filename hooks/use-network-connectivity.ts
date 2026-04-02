@@ -1,5 +1,5 @@
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Hook to monitor network connectivity
@@ -7,20 +7,34 @@ import { useEffect, useState } from 'react';
  */
 export function useNetworkConnectivity() {
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
+  
+  const resolveConnectivity = useCallback((state: NetInfoState): boolean => {
+    if (!state.isConnected) return false;
+    if (state.isInternetReachable === false) return false;
+    return true;
+  }, []);
+
+  const refreshConnectivity = useCallback(async () => {
+    const state = await NetInfo.fetch();
+    setIsConnected(resolveConnectivity(state));
+  }, [resolveConnectivity]);
 
   useEffect(() => {
     // Get initial network state
-    NetInfo.fetch().then((state: NetInfoState) => {
-      setIsConnected(state.isConnected ?? false);
+    refreshConnectivity().catch(() => {
+      setIsConnected(false);
     });
 
     // Subscribe to network state changes
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
-      setIsConnected(state.isConnected ?? false);
+      setIsConnected(resolveConnectivity(state));
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [refreshConnectivity, resolveConnectivity]);
 
-  return isConnected;
+  return {
+    isConnected,
+    refreshConnectivity,
+  };
 }

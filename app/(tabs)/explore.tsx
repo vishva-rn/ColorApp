@@ -40,12 +40,13 @@ export default function ArtsTabScreen() {
 
     try {
       setLoadingArtworkUri(artworkUri);
-      const { svg_url } = await convertImageToSvg(artworkUri);
+      const { svg_url,png_url } = await convertImageToSvg(artworkUri);
 
       router.push({
         pathname: '/drawing',
         params: {
           svgUrl: svg_url,
+          png_url:png_url
         },
       });
     } catch (error) {

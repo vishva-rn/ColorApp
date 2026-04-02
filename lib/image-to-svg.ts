@@ -23,6 +23,7 @@ export const apiClient = axios.create({
 
 type ImageToSvgApiResponse = {
   svg_url?: string;
+  png_url?: string;
 };
 
 function buildNetworkErrorMessage(requestUrl: string) {
@@ -44,7 +45,7 @@ function buildNetworkErrorMessage(requestUrl: string) {
   return `Unable to reach ${requestUrl}. Confirm the server is reachable from the device and the API base URL is correct.`;
 }
 
-export async function convertImageToSvg(imageUrl: string): Promise<{ svg_url: string }> {
+export async function convertImageToSvg(imageUrl: string): Promise<{ svg_url: string; png_url?: string }> {
   const endpoint = '/users/image-to-svg-converter';
   let lastErrorMessage = 'Unable to convert image to SVG.';
 
@@ -84,7 +85,7 @@ export async function convertImageToSvg(imageUrl: string): Promise<{ svg_url: st
       svgUrl: data.svg_url,
     });
 
-    return { svg_url: data.svg_url };
+    return { svg_url: data.svg_url, png_url: data.png_url };
   } catch (error) {
     const requestUrl = `${API_BASE_URL}${endpoint}`;
     const axiosError = isAxiosError(error) ? error : null;
