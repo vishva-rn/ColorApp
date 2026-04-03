@@ -6,7 +6,9 @@ import '../global.css';
 
 import NoInternetScreen from '@/components/no-internet-screen';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useInAppUpdates } from '@/hooks/use-in-app-updates';
 import { useNetworkConnectivity } from '@/hooks/use-network-connectivity';
+import * as Clarity from "@microsoft/react-native-clarity";
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
@@ -16,7 +18,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-const CLARITY_PROJECT_ID = 'YOUR_CLARITY_PROJECT_ID'; // Replace with your Clarity project ID
+const CLARITY_PROJECT_ID = 'w5rh6c64rd'; // Replace with your Clarity project ID
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -25,6 +27,7 @@ export const unstable_settings = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const { isConnected, refreshConnectivity } = useNetworkConnectivity();
+  useInAppUpdates();
 
   const [loaded, error] = useFonts({
     'Poppins-Regular': require('../assets/fonts/Poppins-Regular.ttf'),
@@ -50,11 +53,11 @@ export default function RootLayout() {
   }, [loaded, error]);
 
   // Initialize Microsoft Clarity for session recording and analytics
-  // useEffect(() => {
-  //   Clarity.initialize(CLARITY_PROJECT_ID, {
-  //     logLevel: Clarity.LogLevel.None,
-  //   });
-  // }, []);
+  useEffect(() => {
+    Clarity.initialize(CLARITY_PROJECT_ID, {
+      logLevel: Clarity.LogLevel.None,
+    });
+  }, []);
 
   if (!loaded && !error) {
     return null;

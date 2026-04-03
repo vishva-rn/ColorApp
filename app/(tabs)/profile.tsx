@@ -3,8 +3,8 @@ import React, { useState } from 'react';
 import { Alert, Linking, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import FeedbackDialog from '@/components/dialog/feedback-dialog';
 import { CommonHeader } from '@/components/common-header';
+import FeedbackDialog from '@/components/dialog/feedback-dialog';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 export default function ProfileTabScreen() {
@@ -59,7 +59,7 @@ export default function ProfileTabScreen() {
               <View className="w-9 h-9 rounded-full bg-[#F6EFEA] items-center justify-center mr-3">
                 <IconSymbol name="message.fill" size={16} color="#5E4E42" />
               </View>
-              <Text className="text-[#3A332E] text-[15px] font-poppins">Feedback</Text>
+              <Text className="text-[#3A332E] text-[15px] font-poppins">Send Feedback</Text>
             </View>
             <IconSymbol name="chevron.right" size={16} color="#A0948A" />
           </TouchableOpacity>

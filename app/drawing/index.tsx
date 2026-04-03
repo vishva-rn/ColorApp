@@ -1,10 +1,12 @@
 import DrawingCanvas, { DrawingCanvasHandle, type DrawingPaint, type DrawingPath } from '@/components/drawing/DrawingCanvas';
 import { IconSymbol, type IconSymbolName } from '@/components/ui/icon-symbol';
+import { useInAppUpdates } from '@/hooks/use-in-app-updates';
 import { getDrawingHistoryItemById, upsertDrawingHistoryItem } from '@/lib/drawing-history';
 import { generateFourLayerSketch } from '@/lib/four-layer-sketch';
 import { getOnboardingPrefs } from '@/lib/onboarding-prefs';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -498,6 +500,7 @@ function clampOffset(value: number, scale: number) {
 
 export default function DrawingScreen() {
   const router = useRouter();
+  const { checkAndPromptUpdate } = useInAppUpdates({ enableLifecycleChecks: false });
   const { svgUrl, pngUrl, png_url, historyItemId } = useLocalSearchParams<{
     svgUrl?: string | string[];
     pngUrl?: string | string[];
@@ -569,6 +572,13 @@ export default function DrawingScreen() {
     : historyPngUrl?.trim()
       ? historyPngUrl
       : undefined;
+
+  useFocusEffect(
+    useCallback(() => {
+      void checkAndPromptUpdate({ bypassThrottle: true });
+      return undefined;
+    }, [checkAndPromptUpdate]),
+  );
 
   useEffect(() => {
     let cancelled = false;
