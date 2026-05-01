@@ -1,6 +1,6 @@
 import * as StoreReview from 'expo-store-review';
 import React, { useState } from 'react';
-import { Alert, Linking, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Platform, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CommonHeader } from '@/components/common-header';
@@ -22,12 +22,36 @@ export default function ProfileTabScreen() {
   };
 
   const handleRateAppPress = async () => {
+    console.log('[profile] rate-app:pressed');
     try {
-      const hasAction = await StoreReview.hasAction();
-      if (hasAction) {
-        await StoreReview.requestReview();
+      if (Platform.OS === 'android') {
+        console.log('[profile] rate-app:android-flow');
+        const url = 'market://details?id=com.PixelcolorPaint.app';
+        const webUrl = 'https://play.google.com/store/apps/details?id=com.PixelcolorPaint.app';
+
+        console.log('[profile] rate-app:opening-android-url', url);
+        Linking.openURL(url).then(() => {
+          console.log('[profile] rate-app:opened-android-url-successfully');
+        }).catch((err) => {
+          console.log('[profile] rate-app:failed-android-url, trying-web-url', err);
+          Linking.openURL(webUrl).then(() => {
+            console.log('[profile] rate-app:opened-android-web-url-successfully');
+          }).catch((webErr) => {
+            console.log('[profile] rate-app:failed-android-web-url', webErr);
+            Alert.alert('Unavailable', 'Rate app is not available on this device.');
+          });
+        });
       } else {
-        Alert.alert('Unavailable', 'Rate app is not available on this device.');
+        console.log('[profile] rate-app:ios-flow');
+        const hasAction = await StoreReview.hasAction();
+        console.log('[profile] rate-app:has-action-result', hasAction);
+        if (hasAction) {
+          console.log('[profile] rate-app:requesting-review');
+          await StoreReview.requestReview();
+          console.log('[profile] rate-app:request-review-completed');
+        } else {
+          Alert.alert('Unavailable', 'Rate app is not available on this device.');
+        }
       }
     } catch (error) {
       console.error('[profile] rate-app:error', error);

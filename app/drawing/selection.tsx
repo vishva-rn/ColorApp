@@ -10,10 +10,10 @@ import { useRouter, Link } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 // SVG Icons for categories
-import AnimalSvg from '../../assets/images/svgicons/animal.svg';
-import CuteSvg from '../../assets/images/svgicons/cute.svg';
-import SimpleSvg from '../../assets/images/svgicons/simple.svg';
-import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
+import AnimalSvg from '../../assets/images/svgicons/animal.png';
+import CuteSvg from '../../assets/images/svgicons/cute.png';
+import SimpleSvg from '../../assets/images/svgicons/simple.png';
+import FlowersSvg from '../../assets/images/svgicons/flowers.png';
 
 const CATEGORIES = [
   { id: 'animal', label: 'Animals', icon: AnimalSvg, color: '#FEE2E2', textColor: '#EF4444' },

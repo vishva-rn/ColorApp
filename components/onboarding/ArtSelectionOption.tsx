@@ -1,13 +1,14 @@
 import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { SvgProps } from 'react-native-svg';
+import { Image } from 'expo-image';
 import SelectedIcon from '../../assets/images/svgicons/selected.svg';
 
 interface Props {
   label: string;
   isSelected: boolean;
   onPress: () => void;
-  SvgImage: React.FC<SvgProps>;
+  SvgImage: React.FC<SvgProps> | any;
   unselectedBg?: string;
   mb?: string;
   imageAspectRatio?: string;
@@ -36,9 +37,13 @@ export const ArtSelectionOption = ({ label, isSelected, onPress, SvgImage, unsel
         </View>
       )}
 
-      {/* SVG Image Container */}
+      {/* Image Container */}
       <View className={`w-full ${imageAspectRatio} ${imagePadding} rounded-[18px] overflow-hidden bg-transparent items-center justify-center`}>
-        <SvgImage width="100%" height="100%" />
+        {typeof SvgImage === 'function' ? (
+          <SvgImage width="100%" height="100%" />
+        ) : (
+          <Image source={SvgImage} style={{ width: '100%', height: '100%' }} contentFit="contain" />
+        )}
       </View>
 
       {/* Label */}

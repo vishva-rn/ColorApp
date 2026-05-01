@@ -17,9 +17,9 @@ import { OnboardingHeader } from '../../components/onboarding/OnboardingHeader';
 import { OnboardingNextButton } from '../../components/onboarding/OnboardingNextButton';
 
 // SVG Icons (Palette specific)
-import FabricSvg from '../../assets/images/svgicons/Fabric.svg';
+import FabricSvg from '../../assets/images/svgicons/Fabric.png';
 import GradientSvg from '../../assets/images/svgicons/Gradient.svg';
-import MagicalSvg from '../../assets/images/svgicons/Magical.svg';
+import MagicalSvg from '../../assets/images/svgicons/Magical.png';
 import MakeUpSvg from '../../assets/images/svgicons/MakeUp.svg';
 import PastelSvg from '../../assets/images/svgicons/Pastel.svg';
 import RainbowSvg from '../../assets/images/svgicons/Rainbow.svg';

@@ -17,16 +17,16 @@ import { OnboardingNextButton } from '../../components/onboarding/OnboardingNext
 import { ArtSelectionOption } from '../../components/onboarding/ArtSelectionOption';
 
 // SVG Icons
-import PeopleSvg from '../../assets/images/svgicons/people.svg';
-import AnimalSvg from '../../assets/images/svgicons/animal.svg';
-import NatureSvg from '../../assets/images/svgicons/nature.svg';
-import PlacesSvg from '../../assets/images/svgicons/places.svg';
-import FlowersSvg from '../../assets/images/svgicons/flowers.svg';
-import FoodSvg from '../../assets/images/svgicons/food.svg';
-import CuteSvg from '../../assets/images/svgicons/cute.svg';
-import SimpleSvg from '../../assets/images/svgicons/simple.svg';
+import PeopleSvg from '../../assets/images/svgicons/people.png';
+import AnimalSvg from '../../assets/images/svgicons/animal.png';
+import NatureSvg from '../../assets/images/svgicons/nature.png';
+import PlacesSvg from '../../assets/images/svgicons/places.png';
+import FlowersSvg from '../../assets/images/svgicons/flowers.png';
+import FoodSvg from '../../assets/images/svgicons/food.png';
+import CuteSvg from '../../assets/images/svgicons/cute.png';
+import SimpleSvg from '../../assets/images/svgicons/simple.png';
 import MandalaSvg from '../../assets/images/svgicons/mandala.svg';
-import ComicsSvg from '../../assets/images/svgicons/comics.svg';
+import ComicsSvg from '../../assets/images/svgicons/comics.png';
 
 interface Props {
   onNext: () => void;
