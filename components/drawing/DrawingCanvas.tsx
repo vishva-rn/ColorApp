@@ -1522,6 +1522,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
     const lineMask = lineMaskRef.current;
     const regionLabels = regionLabelsRef.current;
+
+    if (regionLabel === 0) {
+      const fallbackMask = new Uint8Array(rasterSize * rasterSize);
+      fallbackMask.fill(1);
+
+      if (lineMask) {
+        for (let index = 0; index < lineMask.length; index += 1) {
+          if (lineMask[index]) fallbackMask[index] = 0;
+        }
+      }
+
+      fillRegionCacheRef.current.set(regionLabel, fallbackMask);
+      return fallbackMask;
+    }
+
     if (!lineMask || !regionLabels) return null;
 
     let regionMask = buildRegionMask(regionLabel, regionLabels, rasterSize);
@@ -1642,7 +1657,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   }, [appendActionToImage]);
 
   const resolveRegionLabel = useCallback((x: number, y: number) => {
-    if (!regionLabelsRef.current) return null;
+    if (!regionLabelsRef.current) return 0;
 
     return findNearestRegionLabel(
       x,
@@ -1650,7 +1665,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       regionLabelsRef.current,
       regionSizesRef.current,
       rasterSize,
-    );
+    ) ?? 0;
   }, [rasterSize]);
 
   const startCurrentDrawing = useCallback((type: 'stroke' | 'erase', x: number, y: number) => {
@@ -2112,6 +2127,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
         <GestureDetector gesture={drawingGesture}>
           <View
+            collapsable={false}
             style={{
               position: 'absolute',
               top: 0,
