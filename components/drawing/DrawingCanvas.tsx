@@ -19,16 +19,21 @@ import {
   StrokeCap,
   StrokeJoin,
   TileMode,
+  Group,
+  BlurMask,
+  Shader,
   type SkImage,
   type SkPath,
 } from '@shopify/react-native-skia';
 import { File, Paths } from 'expo-file-system';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, PanResponder, View } from 'react-native';
-import Svg, {
+import {
   Path,
   SvgXml,
 } from 'react-native-svg';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -160,8 +165,11 @@ function parseNumericValue(value: string | undefined, fallback = 0): number {
 }
 
 function stripSvgNoise(svgXml: string): string {
+  const start = svgXml.indexOf('<svg');
+  if (start === -1) return svgXml.trim();
+  
   return svgXml
-    .replace(/<\?xml[^?]*\?>\s*/g, '')
+    .substring(start)
     .replace(/<!--[\s\S]*?-->/g, '')
     .trim();
 }
@@ -200,34 +208,64 @@ function removeBackgroundShapes(svgXml: string, viewBox: { width: number; height
   const document = new DOMParser({
     errorHandler: { warning: () => undefined, error: () => undefined, fatalError: () => undefined },
   }).parseFromString(svgXml, 'image/svg+xml');
-  const root = document.documentElement;
+  const root = document?.documentElement;
+  if (!root) return svgXml;
 
   const nodesToRemove: Element[] = [];
 
-  for (let index = 0; index < root.childNodes.length; index += 1) {
-    const childNode = root.childNodes.item(index);
-    if (childNode?.nodeType !== 1) continue;
+  // Deep search for potential background shapes
+  const visit = (node: Node) => {
+    if (node.nodeType !== 1) return;
+    const element = node as Element;
+    const tagName = element.tagName.toLowerCase();
 
-    const element = childNode as Element;
-    const fill = element.getAttribute('fill');
-    if (!isWhiteLikeFill(fill)) continue;
-    if (!isFullCanvasRect(element, viewBox)) continue;
+    if (tagName === 'rect' || tagName === 'path' || tagName === 'polygon' || tagName === 'ellipse') {
+      const fill = element.getAttribute('fill');
+      if (isWhiteLikeFill(fill)) {
+        // If it's a rect and covers most of the canvas, it's likely a background
+        if (tagName === 'rect' && isFullCanvasRect(element, viewBox)) {
+          nodesToRemove.push(element);
+        } else if (tagName === 'path') {
+          // For paths, check if they cover a large area (heuristic)
+          // This is harder without full path parsing, but we can check if they are early in the DOM
+          const isEarly = element.parentNode === root && root.firstChild === element;
+          if (isEarly) {
+            // Check if it has a simple move-to and large dimensions? 
+            // For now, only remove if it's definitely a full rect to be safe, 
+            // but we can be more aggressive if needed.
+          }
+        }
+      }
+    }
 
-    nodesToRemove.push(element);
-  }
+    for (let i = 0; i < node.childNodes.length; i++) {
+      visit(node.childNodes.item(i));
+    }
+  };
 
-  nodesToRemove.forEach((node) => {
-    node.parentNode?.removeChild(node);
-  });
+  visit(root);
+
+  nodesResponderToRemove(nodesToRemove);
 
   return new XMLSerializer().serializeToString(root);
+}
+
+function nodesResponderToRemove(nodes: Element[]) {
+  nodes.forEach((node) => {
+    node.parentNode?.removeChild(node);
+  });
 }
 
 function getSvgViewBox(svgXml: string): { width: number; height: number } {
   const document = new DOMParser({
     errorHandler: { warning: () => undefined, error: () => undefined, fatalError: () => undefined },
   }).parseFromString(svgXml, 'image/svg+xml');
-  const svgElement = document.documentElement;
+  const svgElement = document?.documentElement;
+  
+  if (!svgElement) {
+    return { width: 1024, height: 1024 };
+  }
+
   const viewBoxValue = svgElement.getAttribute('viewBox');
 
   if (viewBoxValue) {
@@ -1088,7 +1126,10 @@ function buildSvgMasks(
   canvasSize: number,
 ): { lineMask: Uint8Array; floodMask: Uint8Array } | null {
   const svgDom = Skia.SVG.MakeFromString(renderableSvgXml);
-  if (!svgDom) return null;
+  if (!svgDom) {
+    console.warn('[DrawingCanvas] Skia.SVG.MakeFromString returned null');
+    return null;
+  }
 
   const surface = Skia.Surface.Make(canvasSize, canvasSize);
   if (!surface) return null;
@@ -1395,21 +1436,58 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     setSvgLoading(true);
 
     fetch(svgUrl)
-      .then((response) => response.text())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch SVG: ${response.status} ${response.statusText}`);
+        }
+        return response.text();
+      })
       .then((rawSvgXml) => {
         if (cancelled) return;
 
-        const cleanSvg = stripSvgNoise(rawSvgXml);
-        const viewBox = getSvgViewBox(cleanSvg);
-        const renderableSvgXml = buildRenderableSvgXml(cleanSvg, viewBox, canvasSize, canvasSize);
-        const svgMasks = buildSvgMasks(renderableSvgXml, rasterSize);
-        const regionData = svgMasks ? buildRegionLabels(svgMasks.floodMask, rasterSize) : null;
+        console.log('[DrawingCanvas] SVG fetch success', { 
+          length: rawSvgXml.length,
+          preview: rawSvgXml.slice(0, 100) 
+        });
 
-        setSvgXml(renderableSvgXml);
-        lineMaskRef.current = svgMasks?.lineMask ?? null;
-        boundaryMaskRef.current = svgMasks?.floodMask ?? null;
-        regionLabelsRef.current = regionData?.labels ?? null;
-        regionSizesRef.current = regionData?.regionSizes ?? new Map();
+        try {
+          const cleanSvg = stripSvgNoise(rawSvgXml);
+          const viewBox = getSvgViewBox(cleanSvg);
+          const renderableSvgXml = buildRenderableSvgXml(cleanSvg, viewBox, canvasSize, canvasSize);
+          
+          console.log('[DrawingCanvas] Svg prepared', {
+            viewBox,
+            renderableLength: renderableSvgXml.length
+          });
+
+          const svgMasks = buildSvgMasks(renderableSvgXml, rasterSize);
+          const regionData = svgMasks ? buildRegionLabels(svgMasks.floodMask, rasterSize) : null;
+
+          setSvgXml(renderableSvgXml);
+          lineMaskRef.current = svgMasks?.lineMask ?? null;
+          boundaryMaskRef.current = svgMasks?.floodMask ?? null;
+          regionLabelsRef.current = regionData?.labels ?? null;
+          regionSizesRef.current = regionData?.regionSizes ?? new Map();
+        } catch (error) {
+          console.error('[DrawingCanvas] SVG processing error:', error);
+          setSvgXml(rawSvgXml);
+          // Fallback: try to build masks from raw SVG if cleaning failed
+          try {
+            const rawMasks = buildSvgMasks(rawSvgXml, rasterSize);
+            const rawRegionData = rawMasks ? buildRegionLabels(rawMasks.floodMask, rasterSize) : null;
+            lineMaskRef.current = rawMasks?.lineMask ?? null;
+            boundaryMaskRef.current = rawMasks?.floodMask ?? null;
+            regionLabelsRef.current = rawRegionData?.labels ?? null;
+            regionSizesRef.current = rawRegionData?.regionSizes ?? new Map();
+          } catch (fallbackError) {
+            console.error('[DrawingCanvas] SVG fallback processing failed:', fallbackError);
+            lineMaskRef.current = null;
+            boundaryMaskRef.current = null;
+            regionLabelsRef.current = null;
+            regionSizesRef.current = new Map();
+          }
+        }
+        
         fillRegionCacheRef.current.clear();
         fillImageCacheRef.current.clear();
         paintImageRef.current = null;
@@ -1650,100 +1728,75 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     });
   }, [pushPath, resolveRegionLabel]);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: (event) => (
-        drawingEnabledRef.current && getActiveTouchCount(event.nativeEvent) <= 1
-      ),
-      onMoveShouldSetPanResponder: (event) => (
-        drawingEnabledRef.current
-        && toolRef.current !== 'bucket'
-        && getActiveTouchCount(event.nativeEvent) <= 1
-      ),
-      onPanResponderGrant: (event) => {
-        if (!drawingEnabledRef.current) {
-          clearCurrentDrawing();
-          return;
-        }
+  const panGesture = useMemo(() => Gesture.Pan()
+    .minPointers(1)
+    .maxPointers(1)
+    .onStart((event) => {
+      if (!drawingEnabledRef.current || toolRef.current === 'bucket') return;
 
-        if (getActiveTouchCount(event.nativeEvent) > 1) {
-          clearCurrentDrawing();
-          return;
-        }
+      const x = Math.round(event.x * 100) / 100;
+      const y = Math.round(event.y * 100) / 100;
+      runOnJS(startCurrentDrawing)(toolRef.current === 'eraser' ? 'erase' : 'stroke', x, y);
+    })
+    .onUpdate((event) => {
+      if (!drawingEnabledRef.current || !currentActionTypeRef.current || toolRef.current === 'bucket') return;
 
-        const { locationX, locationY } = event.nativeEvent;
+      const x = Math.round(event.x * 100) / 100;
+      const y = Math.round(event.y * 100) / 100;
+      
+      const lastPoint = lastPointRef.current;
+      if (lastPoint) {
+        const deltaX = x - lastPoint.x;
+        const deltaY = y - lastPoint.y;
+        const pointSpacing = currentActionTypeRef.current === 'erase'
+          ? Math.max(strokeWidthRef.current * 0.2, 1)
+          : getPointSpacingDistance(brushStyleRef.current, strokeWidthRef.current);
+        
+        if ((deltaX * deltaX) + (deltaY * deltaY) < (pointSpacing * pointSpacing)) return;
+      }
 
-        if (toolRef.current === 'bucket') {
-          handleBucketFill(locationX, locationY);
-          return;
-        }
+      currentPathSegmentsRef.current.push(`L${x},${y}`);
+      lastPointRef.current = { x, y };
 
-        if (toolRef.current !== 'brush' && toolRef.current !== 'eraser') return;
+      const currentPath = currentPathSegmentsRef.current.join(' ');
+      
+      runOnJS(setCurrentDrawing)(
+        currentActionTypeRef.current === 'erase'
+          ? {
+              type: 'erase',
+              d: currentPath,
+              paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
+              brushStyle: 'default',
+              strokeWidth: strokeWidthRef.current,
+              opacity: opacityRef.current,
+            }
+          : {
+              type: 'stroke',
+              d: currentPath,
+              paint: paintRef.current,
+              brushStyle: brushStyleRef.current,
+              strokeWidth: strokeWidthRef.current,
+              opacity: opacityRef.current,
+            }
+      );
+    })
+    .onFinalize(() => {
+      if (currentActionTypeRef.current) {
+        runOnJS(commitCurrentDrawing)();
+        runOnJS(clearCurrentDrawing)();
+      }
+    })
+    .shouldCancelWhenOutside(false), [commitCurrentDrawing, clearCurrentDrawing, startCurrentDrawing]);
 
-        const x = Math.round(locationX * 100) / 100;
-        const y = Math.round(locationY * 100) / 100;
-        startCurrentDrawing(toolRef.current === 'eraser' ? 'erase' : 'stroke', x, y);
-      },
-      onPanResponderMove: (event) => {
-        if (!drawingEnabledRef.current) {
-          clearCurrentDrawing();
-          return;
-        }
+  const tapGesture = useMemo(() => Gesture.Tap()
+    .numberOfTaps(1)
+    .onStart((event) => {
+      if (!drawingEnabledRef.current || toolRef.current !== 'bucket') return;
+      runOnJS(handleBucketFill)(event.x, event.y);
+    })
+    .shouldCancelWhenOutside(false), [handleBucketFill]);
 
-        if (getActiveTouchCount(event.nativeEvent) > 1) {
-          clearCurrentDrawing();
-          return;
-        }
-
-        if (!currentActionTypeRef.current) return;
-
-        const x = Math.round(event.nativeEvent.locationX * 100) / 100;
-        const y = Math.round(event.nativeEvent.locationY * 100) / 100;
-        const lastPoint = lastPointRef.current;
-
-        if (lastPoint) {
-          const deltaX = x - lastPoint.x;
-          const deltaY = y - lastPoint.y;
-          const pointSpacing = currentActionTypeRef.current === 'erase'
-            ? Math.max(strokeWidthRef.current * 0.2, 1)
-            : getPointSpacingDistance(brushStyleRef.current, strokeWidthRef.current);
-          if ((deltaX * deltaX) + (deltaY * deltaY) < (pointSpacing * pointSpacing)) return;
-        }
-
-        currentPathSegmentsRef.current.push(`L${x},${y}`);
-        lastPointRef.current = { x, y };
-
-        if (currentActionTypeRef.current === 'erase') {
-          setCurrentDrawing({
-            type: 'erase',
-            d: currentPathSegmentsRef.current.join(' '),
-            paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
-            brushStyle: 'default',
-            strokeWidth: strokeWidthRef.current,
-            opacity: opacityRef.current,
-          });
-          return;
-        }
-
-        setCurrentDrawing({
-          type: 'stroke',
-          d: currentPathSegmentsRef.current.join(' '),
-          paint: paintRef.current,
-          brushStyle: brushStyleRef.current,
-          strokeWidth: strokeWidthRef.current,
-          opacity: opacityRef.current,
-        });
-      },
-      onPanResponderRelease: () => {
-        if (!currentActionTypeRef.current) return;
-        commitCurrentDrawing();
-        clearCurrentDrawing();
-      },
-      onPanResponderTerminate: () => {
-        clearCurrentDrawing();
-      },
-    }),
-  ).current;
+  const drawingGesture = Gesture.Exclusive(panGesture, tapGesture);
 
   const undo = useCallback(() => {
     if (pathsRef.current.length === 0) return;
@@ -1793,7 +1846,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   const save = useCallback(async (): Promise<string | null> => {
     try {
-      const surface = Skia.Surface.MakeOffscreen(rasterSize, rasterSize) ?? Skia.Surface.Make(rasterSize, rasterSize);
+      const surface = Skia.Surface.Make(rasterSize, rasterSize);
       if (!surface) return null;
 
       const canvas = surface.getCanvas();
@@ -1850,17 +1903,78 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const currentPreview = useMemo(() => {
     if (!currentDrawing?.d) return null;
 
+    const skPath = Skia.Path.MakeFromSVGString(currentDrawing.d);
+    if (!skPath) return null;
+
     if (currentDrawing.type === 'stroke') {
-      const surface = Skia.Surface.Make(rasterSize, rasterSize);
-      if (!surface) return null;
+      const config = getToolRenderConfig(currentDrawing.brushStyle);
+      const isPencil = currentDrawing.brushStyle === 'pencil';
+      const isPaintBrush = currentDrawing.brushStyle === 'paint-brush';
+      const isMarker = currentDrawing.brushStyle === 'marker';
+      const isGlowPen = currentDrawing.brushStyle === 'glow-pen';
+      const isCrayon = currentDrawing.brushStyle === 'crayon';
+      const isPaint = currentDrawing.brushStyle === 'paint';
+      const isBallPen = currentDrawing.brushStyle === 'ball-pen';
+      const isSketchPen = currentDrawing.brushStyle === 'sketch-pen';
 
-      const canvas = surface.getCanvas();
-      canvas.clear(Skia.Color('transparent'));
-      drawActionOnCanvas(canvas, currentDrawing);
-      surface.flush();
+      // Define passes based on brush style
+      let passes: any[] = [];
+      if (isPencil) {
+        passes = [
+          { widthMultiplier: 1.45, alpha: 0.14, offsetX: 0, offsetY: 0 },
+          { widthMultiplier: 1.1, alpha: 0.12, offsetX: 0.35, offsetY: 0.25 },
+          { widthMultiplier: 0.95, alpha: 0.3, offsetX: -0.2, offsetY: 0.15 },
+          { widthMultiplier: 0.6, alpha: 0.18, offsetX: 0, offsetY: 0 },
+        ];
+      } else if (isPaintBrush) {
+        passes = [
+          { widthMultiplier: 1 + (config.sizeJitter * 1.4), alpha: 0.22, offsetX: 0, offsetY: 0 },
+          { widthMultiplier: 1 + (config.sizeJitter * 0.5), alpha: 0.32, offsetX: 0.28, offsetY: 0.16 },
+          { widthMultiplier: 1 - (config.sizeJitter * 0.3), alpha: 0.46, offsetX: -0.18, offsetY: 0.12 },
+          { widthMultiplier: 1 - (config.sizeJitter * 1.8), alpha: 0.24, offsetX: 0.12, offsetY: -0.12 },
+        ];
+      } else if (isMarker) {
+        passes = [
+          { widthMultiplier: 1 + config.sizeJitter, alpha: config.opacity, blur: config.blur, blendMode: config.blendMode },
+          { widthMultiplier: 0.88 - config.sizeJitter, alpha: config.opacity * 0.48, blur: 0, blendMode: config.blendMode },
+        ];
+      } else if (isGlowPen) {
+        passes = [
+          { widthMultiplier: 1.4, alpha: config.haloOpacity ?? 0.35, blur: Math.max((config.haloBlur ?? 8) * (currentDrawing.strokeWidth / 10), 1), blendMode: config.haloBlendMode },
+          { widthMultiplier: 0.92, alpha: config.opacity, blur: config.blur, blendMode: config.blendMode },
+        ];
+      } else if (isCrayon) {
+        const jitter = Math.max(currentDrawing.strokeWidth * (config.jitter ?? 0.2) * 0.08, 0.18);
+        passes = [
+          { widthMultiplier: 1.05, alpha: 0.55, offsetX: 0, offsetY: 0 },
+          { widthMultiplier: 0.92, alpha: 0.42, offsetX: jitter, offsetY: -jitter * 0.35 },
+          { widthMultiplier: 0.86, alpha: 0.32, offsetX: -jitter * 0.8, offsetY: jitter * 0.45 },
+          { widthMultiplier: 0.76, alpha: 0.24, offsetX: jitter * 0.5, offsetY: jitter * 0.7 },
+        ];
+      } else if (isPaint) {
+        passes = [
+          { widthMultiplier: 1 + config.sizeJitter, alpha: config.opacity * 0.38, blur: config.blur + 0.6 },
+          { widthMultiplier: 1, alpha: config.opacity * 0.72, blur: config.blur },
+          { widthMultiplier: 1 - config.sizeJitter, alpha: config.opacity * 0.28, blur: config.blur * 0.6 },
+        ];
+      } else if (isBallPen) {
+        passes = [
+          { widthMultiplier: 1, alpha: config.opacity, blur: config.blur },
+          { widthMultiplier: 0.55, alpha: config.opacity * 0.18, blur: 0 },
+        ];
+      } else if (isSketchPen) {
+        const jitter = Math.max(currentDrawing.strokeWidth * (config.jitter ?? 0.1) * 0.08, 0.16);
+        passes = [
+          { widthMultiplier: 1 + config.sizeJitter, alpha: config.opacity * 0.52, offsetX: 0, offsetY: 0, blur: config.blur },
+          { widthMultiplier: 1 - (config.sizeJitter * 0.45), alpha: config.opacity * 0.28, offsetX: jitter, offsetY: -jitter * 0.4, blur: config.blur * 0.6 },
+          { widthMultiplier: 1 - (config.sizeJitter * 0.85), alpha: config.opacity * 0.22, offsetX: -jitter * 0.75, offsetY: jitter * 0.5, blur: config.blur * 0.4 },
+        ];
+      } else {
+        passes = [{ widthMultiplier: 1, alpha: config.opacity, blur: config.blur, blendMode: config.blendMode }];
+      }
 
-      const snapshot = surface.makeImageSnapshot();
-      const rasterPreview = snapshot.makeNonTextureImage() ?? snapshot;
+      const shader = makeSkiaShaderFromPaint(currentDrawing.paint, rasterSize);
+      const paintColor = currentDrawing.paint.kind === 'solid' ? Skia.Color(currentDrawing.paint.color) : Skia.Color('black');
 
       return (
         <Canvas
@@ -1873,13 +1987,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           }}
           pointerEvents="none"
         >
-          <SkiaImage
-            image={rasterPreview}
-            x={0}
-            y={0}
-            width={canvasSize}
-            height={canvasSize}
-          />
+          {passes.map((pass, index) => (
+            <Group key={index} transform={[{ translateX: pass.offsetX ?? 0 }, { translateY: pass.offsetY ?? 0 }]}>
+              <Path
+                path={skPath}
+                style="stroke"
+                strokeWidth={Math.max(currentDrawing.strokeWidth * (pass.widthMultiplier ?? 1), 0.5)}
+                strokeCap={pass.cap ?? config.cap}
+                strokeJoin={pass.join ?? config.join}
+                color={paintColor}
+                opacity={currentDrawing.opacity * (pass.alpha ?? 1)}
+              >
+                {shader && <Shader shader={shader} />}
+                {pass.blur > 0 && <BlurMask blur={pass.blur} style="normal" />}
+              </Path>
+            </Group>
+          ))}
         </Canvas>
       );
     }
@@ -1903,7 +2026,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         />
       </Svg>
     );
-  }, [canvasSize, currentDrawing, drawActionOnCanvas, rasterSize]);
+  }, [canvasSize, currentDrawing, rasterSize]);
 
   return (
     <View
@@ -1969,17 +2092,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           </View>
         )}
 
-        <View
-          {...panResponder.panHandlers}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: canvasSize,
-            height: canvasSize,
-            backgroundColor: 'transparent',
-          }}
-        />
+        <GestureDetector gesture={drawingGesture}>
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: canvasSize,
+              height: canvasSize,
+              backgroundColor: 'transparent',
+            }}
+          />
+        </GestureDetector>
       </View>
     </View>
   );

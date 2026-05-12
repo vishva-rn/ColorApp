@@ -37,7 +37,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
-      "package": "com.PixelcolorPaint.app"
+      "package": "com.PixelcolorrPaint.app"
     },
     "web": {
       "output": "static",

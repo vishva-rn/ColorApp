@@ -89,7 +89,7 @@ android {
 
     namespace 'com.daxitaccount.ColorApp'
     defaultConfig {
-        applicationId 'com.PixelcolorPaint.app'
+        applicationId 'com.PixelcolorrPaint.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

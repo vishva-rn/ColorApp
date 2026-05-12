@@ -1186,3 +1186,25 @@ export default function DrawingScreen() {
     </SafeAreaView>
   );
 }
+
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  return (
+    <SafeAreaView className="flex-1 bg-[#F7F2EF] justify-center items-center px-6">
+      <View className="w-16 h-16 rounded-full bg-[#F87171]/20 items-center justify-center mb-4">
+        <IconSymbol name="exclamationmark.triangle" size={32} color="#F87171" />
+      </View>
+      <Text className="text-[20px] font-poppins-semibold text-[#3A3A3A] mb-2 text-center">
+        Oops! Drawing Canvas Error
+      </Text>
+      <Text className="text-[14px] font-poppins-regular text-[#6E665F] mb-8 text-center leading-relaxed">
+        We encountered a problem loading the drawing canvas. {__DEV__ ? error.message : "Please try again."}
+      </Text>
+      <TouchableOpacity
+        onPress={retry}
+        className="bg-[#3A3A3A] px-8 py-3 rounded-full shadow-sm"
+      >
+        <Text className="text-white font-poppins-medium text-[16px]">Try Again</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
+  );
+}

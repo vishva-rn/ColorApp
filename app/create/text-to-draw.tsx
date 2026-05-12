@@ -47,19 +47,19 @@ const STYLE_OPTIONS = [
   {
     id: 'pop-art',
     label: 'Pop Art',
-    apiValue: 'pop art',
+    apiValue: 'pop_art',
     imageUrl: 'https://apps-assets.infinitycorp.tech/public/colorapp/Style/Pop-Art-955e751e.webp',
   },
   {
     id: '3d-movie',
     label: '3D Movie',
-    apiValue: '3d movie',
+    apiValue: '3d_movie',
     imageUrl: 'https://apps-assets.infinitycorp.tech/public/colorapp/Style/3D-Movie-1e475a18.webp',
   },
   {
     id: 'belgium-bd',
     label: 'Belgium BD',
-    apiValue: 'belgium bd',
+    apiValue: 'belgium_bd',
     imageUrl: 'https://apps-assets.infinitycorp.tech/public/colorapp/Style/Belgium-BD-3a74af97.webp',
   },
 ] as const;

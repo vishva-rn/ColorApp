@@ -12,3 +12,21 @@
 -keep class com.facebook.react.turbomodule.** { *; }
 
 # Add any project specific keep options here:
+
+# react-native-skia
+-keep class com.shopify.reactnative.skia.** { *; }
+-keep class com.shopify.reactnative.** { *; }
+
+# react-native-gesture-handler
+-keep class com.swmansion.gesturehandler.** { *; }
+-keep class com.swmansion.gesturehandler.react.** { *; }
+
+# react-native-svg
+-keep class com.horcrux.svg.** { *; }
+
+# react-native-screens
+-keep class com.swmansion.rnscreens.** { *; }
+
+# Hermes
+-keep class com.facebook.hermes.unicode.** { *; }
+-keep class com.facebook.jni.** { *; }
