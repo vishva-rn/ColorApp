@@ -27,13 +27,13 @@ import {
 } from '@shopify/react-native-skia';
 import { File, Paths } from 'expo-file-system';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, PanResponder, View } from 'react-native';
+import { ActivityIndicator, Dimensions, View } from 'react-native';
 import {
   Path,
+  Svg,
   SvgXml,
 } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS } from 'react-native-reanimated';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -1717,7 +1717,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const handleBucketFill = useCallback((x: number, y: number) => {
     if (toolRef.current !== 'bucket') return;
     if (!drawingEnabledRef.current) return;
-    const regionLabel = resolveRegionLabel(x, y);
+
+    const roundedX = Math.round(x * 100) / 100;
+    const roundedY = Math.round(y * 100) / 100;
+    const regionLabel = resolveRegionLabel(roundedX, roundedY);
     if (!regionLabel) return;
 
     pushPath({
@@ -1728,75 +1731,90 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     });
   }, [pushPath, resolveRegionLabel]);
 
+  const handleStrokeStart = useCallback((x: number, y: number) => {
+    if (!drawingEnabledRef.current || toolRef.current === 'bucket') return;
+
+    const roundedX = Math.round(x * 100) / 100;
+    const roundedY = Math.round(y * 100) / 100;
+    startCurrentDrawing(toolRef.current === 'eraser' ? 'erase' : 'stroke', roundedX, roundedY);
+  }, [startCurrentDrawing]);
+
+  const handleStrokeMove = useCallback((x: number, y: number) => {
+    if (!drawingEnabledRef.current || !currentActionTypeRef.current || toolRef.current === 'bucket') return;
+
+    const roundedX = Math.round(x * 100) / 100;
+    const roundedY = Math.round(y * 100) / 100;
+
+    const lastPoint = lastPointRef.current;
+    if (lastPoint) {
+      const deltaX = roundedX - lastPoint.x;
+      const deltaY = roundedY - lastPoint.y;
+      const pointSpacing = currentActionTypeRef.current === 'erase'
+        ? Math.max(strokeWidthRef.current * 0.2, 1)
+        : getPointSpacingDistance(brushStyleRef.current, strokeWidthRef.current);
+
+      if ((deltaX * deltaX) + (deltaY * deltaY) < (pointSpacing * pointSpacing)) return;
+    }
+
+    currentPathSegmentsRef.current.push(`L${roundedX},${roundedY}`);
+    lastPointRef.current = { x: roundedX, y: roundedY };
+
+    const currentPath = currentPathSegmentsRef.current.join(' ');
+
+    setCurrentDrawing(
+      currentActionTypeRef.current === 'erase'
+        ? {
+            type: 'erase',
+            d: currentPath,
+            paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
+            brushStyle: 'default',
+            strokeWidth: strokeWidthRef.current,
+            opacity: opacityRef.current,
+          }
+        : {
+            type: 'stroke',
+            d: currentPath,
+            paint: paintRef.current,
+            brushStyle: brushStyleRef.current,
+            strokeWidth: strokeWidthRef.current,
+            opacity: opacityRef.current,
+          }
+    );
+  }, []);
+
+  const handleStrokeEnd = useCallback(() => {
+    if (!currentActionTypeRef.current) return;
+    commitCurrentDrawing();
+    clearCurrentDrawing();
+  }, [clearCurrentDrawing, commitCurrentDrawing]);
+
   const panGesture = useMemo(() => Gesture.Pan()
     .minPointers(1)
     .maxPointers(1)
+    .runOnJS(true)
     .onStart((event) => {
-      if (!drawingEnabledRef.current || toolRef.current === 'bucket') return;
-
-      const x = Math.round(event.x * 100) / 100;
-      const y = Math.round(event.y * 100) / 100;
-      runOnJS(startCurrentDrawing)(toolRef.current === 'eraser' ? 'erase' : 'stroke', x, y);
+      handleStrokeStart(event.x, event.y);
     })
     .onUpdate((event) => {
-      if (!drawingEnabledRef.current || !currentActionTypeRef.current || toolRef.current === 'bucket') return;
-
-      const x = Math.round(event.x * 100) / 100;
-      const y = Math.round(event.y * 100) / 100;
-      
-      const lastPoint = lastPointRef.current;
-      if (lastPoint) {
-        const deltaX = x - lastPoint.x;
-        const deltaY = y - lastPoint.y;
-        const pointSpacing = currentActionTypeRef.current === 'erase'
-          ? Math.max(strokeWidthRef.current * 0.2, 1)
-          : getPointSpacingDistance(brushStyleRef.current, strokeWidthRef.current);
-        
-        if ((deltaX * deltaX) + (deltaY * deltaY) < (pointSpacing * pointSpacing)) return;
-      }
-
-      currentPathSegmentsRef.current.push(`L${x},${y}`);
-      lastPointRef.current = { x, y };
-
-      const currentPath = currentPathSegmentsRef.current.join(' ');
-      
-      runOnJS(setCurrentDrawing)(
-        currentActionTypeRef.current === 'erase'
-          ? {
-              type: 'erase',
-              d: currentPath,
-              paint: makeSolidPaint('#FFFFFF', 'eraser-white'),
-              brushStyle: 'default',
-              strokeWidth: strokeWidthRef.current,
-              opacity: opacityRef.current,
-            }
-          : {
-              type: 'stroke',
-              d: currentPath,
-              paint: paintRef.current,
-              brushStyle: brushStyleRef.current,
-              strokeWidth: strokeWidthRef.current,
-              opacity: opacityRef.current,
-            }
-      );
+      handleStrokeMove(event.x, event.y);
     })
     .onFinalize(() => {
-      if (currentActionTypeRef.current) {
-        runOnJS(commitCurrentDrawing)();
-        runOnJS(clearCurrentDrawing)();
-      }
+      handleStrokeEnd();
     })
-    .shouldCancelWhenOutside(false), [commitCurrentDrawing, clearCurrentDrawing, startCurrentDrawing]);
+    .shouldCancelWhenOutside(false), [handleStrokeEnd, handleStrokeMove, handleStrokeStart]);
 
   const tapGesture = useMemo(() => Gesture.Tap()
     .numberOfTaps(1)
-    .onStart((event) => {
-      if (!drawingEnabledRef.current || toolRef.current !== 'bucket') return;
-      runOnJS(handleBucketFill)(event.x, event.y);
+    .runOnJS(true)
+    .onEnd((event, success) => {
+      if (!success) return;
+      handleBucketFill(event.x, event.y);
     })
     .shouldCancelWhenOutside(false), [handleBucketFill]);
 
-  const drawingGesture = Gesture.Exclusive(panGesture, tapGesture);
+  const drawingGesture = useMemo(() => (
+    tool === 'bucket' ? tapGesture : panGesture
+  ), [panGesture, tapGesture, tool]);
 
   const undo = useCallback(() => {
     if (pathsRef.current.length === 0) return;
