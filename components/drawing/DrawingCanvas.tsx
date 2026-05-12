@@ -27,13 +27,12 @@ import {
 } from '@shopify/react-native-skia';
 import { File, Paths } from 'expo-file-system';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, View } from 'react-native';
+import { ActivityIndicator, Dimensions, PanResponder, View } from 'react-native';
 import {
   Path,
   Svg,
   SvgXml,
 } from 'react-native-svg';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -1736,7 +1735,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     const roundedX = Math.round(x * 100) / 100;
     const roundedY = Math.round(y * 100) / 100;
     const regionLabel = resolveRegionLabel(roundedX, roundedY);
-    if (!regionLabel) return;
+    if (regionLabel === null) return;
 
     pushPath({
       type: 'fill',
@@ -1803,33 +1802,36 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     clearCurrentDrawing();
   }, [clearCurrentDrawing, commitCurrentDrawing]);
 
-  const panGesture = useMemo(() => Gesture.Pan()
-    .minPointers(1)
-    .maxPointers(1)
-    .runOnJS(true)
-    .onStart((event) => {
-      handleStrokeStart(event.x, event.y);
-    })
-    .onUpdate((event) => {
-      handleStrokeMove(event.x, event.y);
-    })
-    .onFinalize(() => {
+  const drawingPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: (event) => {
+      if (!drawingEnabledRef.current) return false;
+      return getActiveTouchCount(event.nativeEvent) <= 1;
+    },
+    onMoveShouldSetPanResponder: (event) => {
+      if (!drawingEnabledRef.current || toolRef.current === 'bucket') return false;
+      return getActiveTouchCount(event.nativeEvent) <= 1;
+    },
+    onPanResponderGrant: (event) => {
+      if (toolRef.current === 'bucket') return;
+      handleStrokeStart(event.nativeEvent.locationX, event.nativeEvent.locationY);
+    },
+    onPanResponderMove: (event) => {
+      if (toolRef.current === 'bucket') return;
+      handleStrokeMove(event.nativeEvent.locationX, event.nativeEvent.locationY);
+    },
+    onPanResponderRelease: (event) => {
+      if (toolRef.current === 'bucket') {
+        handleBucketFill(event.nativeEvent.locationX, event.nativeEvent.locationY);
+        return;
+      }
+
       handleStrokeEnd();
-    })
-    .shouldCancelWhenOutside(false), [handleStrokeEnd, handleStrokeMove, handleStrokeStart]);
-
-  const tapGesture = useMemo(() => Gesture.Tap()
-    .numberOfTaps(1)
-    .runOnJS(true)
-    .onEnd((event, success) => {
-      if (!success) return;
-      handleBucketFill(event.x, event.y);
-    })
-    .shouldCancelWhenOutside(false), [handleBucketFill]);
-
-  const drawingGesture = useMemo(() => (
-    tool === 'bucket' ? tapGesture : panGesture
-  ), [panGesture, tapGesture, tool]);
+    },
+    onPanResponderTerminate: () => {
+      handleStrokeEnd();
+    },
+    onPanResponderTerminationRequest: () => false,
+  }), [handleBucketFill, handleStrokeEnd, handleStrokeMove, handleStrokeStart]);
 
   const undo = useCallback(() => {
     if (pathsRef.current.length === 0) return;
@@ -2125,19 +2127,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           </View>
         )}
 
-        <GestureDetector gesture={drawingGesture}>
-          <View
-            collapsable={false}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: canvasSize,
-              height: canvasSize,
-              backgroundColor: 'transparent',
-            }}
-          />
-        </GestureDetector>
+        <View
+          collapsable={false}
+          {...drawingPanResponder.panHandlers}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: canvasSize,
+            height: canvasSize,
+            backgroundColor: 'transparent',
+          }}
+        />
       </View>
     </View>
   );
