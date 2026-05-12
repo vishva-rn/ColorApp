@@ -203,9 +203,11 @@ function isFullCanvasRect(
     && heightMatches;
 }
 
+const ignoreXmlParseError = () => undefined;
+
 function removeBackgroundShapes(svgXml: string, viewBox: { width: number; height: number }): string {
   const document = new DOMParser({
-    errorHandler: { warning: () => undefined, error: () => undefined, fatalError: () => undefined },
+    onError: ignoreXmlParseError,
   }).parseFromString(svgXml, 'image/svg+xml');
   const root = document?.documentElement;
   if (!root) return svgXml;
@@ -257,7 +259,7 @@ function nodesResponderToRemove(nodes: Element[]) {
 
 function getSvgViewBox(svgXml: string): { width: number; height: number } {
   const document = new DOMParser({
-    errorHandler: { warning: () => undefined, error: () => undefined, fatalError: () => undefined },
+    onError: ignoreXmlParseError,
   }).parseFromString(svgXml, 'image/svg+xml');
   const svgElement = document?.documentElement;
   
