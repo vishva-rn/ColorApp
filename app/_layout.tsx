@@ -4,10 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import '../global.css';
 
-import NoInternetScreen from '@/components/no-internet-screen';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useInAppUpdates } from '@/hooks/use-in-app-updates';
-import { useNetworkConnectivity } from '@/hooks/use-network-connectivity';
 import * as Clarity from "@microsoft/react-native-clarity";
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
@@ -26,7 +24,6 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const { isConnected, refreshConnectivity } = useNetworkConnectivity();
   useInAppUpdates();
 
   const [loaded, error] = useFonts({
@@ -90,12 +87,7 @@ export default function RootLayout() {
           <StatusBar style="auto" />
         </ThemeProvider>
 
-        {isConnected === false && (
-          <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
-            <NoInternetScreen onTryAgain={refreshConnectivity} />
-            <StatusBar style="light" />
-          </View>
-        )}
+
       </View>
     </GestureHandlerRootView>
   );

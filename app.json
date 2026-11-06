@@ -2,7 +2,7 @@
   "expo": {
     "name": "ColorApp",
     "slug": "ColorApp",
-    "version": "1.0.0",
+    "version": "1.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "colorapp",
@@ -73,7 +73,7 @@
       }
     },
     "owner": "piyushexpo",
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.1",
     "updates": {
       "url": "https://u.expo.dev/6adefd7c-76d3-47d6-9859-6c362ead9b56"
     }
