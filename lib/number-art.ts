@@ -1,5 +1,8 @@
+import { INTEREST_ART, REDRAWN_ART } from './interest-art';
+import { MOSAIC_SUNRISE } from './mosaic-sunrise';
+
 export type ArtRegion = { id: string; path: string; color: number; x: number; y: number; r?: number };
-export type NumberArt = { id: string; title: string; category: string; palette: string[]; regions: ArtRegion[]; size?: number; outline?: number };
+export type NumberArt = { id: string; title: string; category: string; palette: string[]; regions: ArtRegion[]; size?: number; outline?: number; lineWidth?: number };
 const ellipse = (x: number, y: number, rx: number, ry: number) => `M ${x-rx} ${y} a ${rx} ${ry} 0 1 0 ${rx*2} 0 a ${rx} ${ry} 0 1 0 ${-rx*2} 0`;
 function scene(id: string, title: string, palette: string[]): NumberArt {
   const shapes: [string, number, number, number][] = [
@@ -33,5 +36,18 @@ const VECTOR_ART: NumberArt[] = [
 // New picture pages first (they are the Home content), the original vector scenes after them.
 // eslint-disable-next-line import/first
 import { PAGE_ART } from './page-art';
-export const NUMBER_ART: NumberArt[] = [...PAGE_ART, ...VECTOR_ART];
-export const getNumberArt = (id?: string) => NUMBER_ART.find(art=>art.id===id);
+const replacements: Readonly<Record<string, NumberArt>> = {
+  ...REDRAWN_ART,
+  mosaic_sun: REDRAWN_ART.mosaic_sunrise,
+};
+export const ARCHIVED_ART = [
+  ...INTEREST_ART.filter((art) => art.id in replacements),
+  MOSAIC_SUNRISE,
+];
+export const NUMBER_ART: NumberArt[] = [
+  ...PAGE_ART,
+  ...INTEREST_ART.map((art) => replacements[art.id] ?? art),
+  ...VECTOR_ART,
+];
+export const getNumberArt = (id?: string) =>
+  NUMBER_ART.find((art) => art.id === id) ?? ARCHIVED_ART.find((art) => art.id === id);

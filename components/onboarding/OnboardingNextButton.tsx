@@ -4,12 +4,15 @@ import { TouchableOpacity, View } from 'react-native';
 
 interface Props {
   onPress: () => void;
+  accessibilityLabel?: string;
 }
 
-export const OnboardingNextButton = ({ onPress }: Props) => {
+export const OnboardingNextButton = ({ onPress, accessibilityLabel = 'Next' }: Props) => {
   return (
     <View className="absolute bottom-10 right-6">
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
         onPress={onPress}
         activeOpacity={0.8}
         className="w-[70px] h-[70px] rounded-full bg-[#3A3A3A] items-center justify-center"

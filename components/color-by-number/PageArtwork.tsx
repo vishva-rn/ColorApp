@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, View, type ImageSourcePropType } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
-import { type NumberArt } from '@/lib/number-art';
+import type { ArtworkProps, RegionPressProps } from './Artwork';
+import RegionFill from './RegionFill';
 
 
 /**
@@ -58,9 +59,7 @@ function HintHand({cx, cy, box}: {cx: number; cy: number; box: number}) {
  *  - the number sits at the deepest point inside each region, sized so it never leaves the region
  * Same props as <Artwork/>, so the screens that use it need no new logic.
  */
-export default function PageArtwork({art, filled=[], preview=false, outlineOnly=false, selected, hint, onRegion}: {
-  art: NumberArt; filled?: string[]; preview?: boolean; outlineOnly?: boolean; selected?: number; hint?: string; onRegion?: (id:string)=>void;
-}) {
+export default function PageArtwork({art, filled=[], preview=false, outlineOnly=false, selected, hint, onRegion, reveals, onRevealEnd}: ArtworkProps) {
   const size = art.size ?? 1024;
   const [box, setBox] = useState(0);
   const hintRegion = hint ? art.regions.find(r => r.id === hint) : undefined;
@@ -71,12 +70,14 @@ export default function PageArtwork({art, filled=[], preview=false, outlineOnly=
   return <View onLayout={e=>setBox(e.nativeEvent.layout.width)} style={{width:'100%',height:'100%',backgroundColor:'#FFFFFF'}}>
     <Svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`}>
       {art.regions.map(region=>{
-        const done = preview || filled.includes(region.id);
+        const reveal = reveals?.[region.id];
+        const done = preview || (filled.includes(region.id) && !reveal);
         const fill = done ? art.palette[region.color-1]
           : hint===region.id ? '#F9DEA5'
           : selected===region.color ? '#DCE0F5' : '#FFFFFF';
-        return <G key={region.id} onPress={onRegion ? ()=>onRegion(region.id) : undefined}>
+        return <G<RegionPressProps> key={region.id} onPress={onRegion ? (event) => onRegion(region.id, event) : undefined}>
           <Path d={region.path} fill={fill} fillRule="evenodd"/>
+          {reveal && <RegionFill region={region} color={art.palette[region.color - 1]} size={size} reveal={reveal} onEnd={onRevealEnd} />}
         </G>;
       })}
     </Svg>

@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Artwork from '@/components/color-by-number/Artwork';
+import type { FillRevealEnd, FillReveals } from '@/components/color-by-number/RegionFill';
 import { getNumberArt, type NumberArt } from '@/lib/number-art';
 import { loadProgress, saveProgress } from '@/lib/number-progress';
 export default function Drawing() {
@@ -25,17 +27,45 @@ function Coloring({art}: {art:NumberArt}) {
   const [zoom,setZoom]=useState(1);
   const [notice,setNotice]=useState('');
   const [saveError,setSaveError]=useState(false);
+  const [reveals, setReveals] = useState<FillReveals>({});
+  const canvas = useRef<View>(null);
+  const painted = useRef(filled);
+  const reduceMotion = useReducedMotion();
+  const finishReveal = useCallback<FillRevealEnd>((id, reveal) => {
+    setReveals((current) => {
+      if (current[id] !== reveal) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }, []);
   const complete=filled.length===art.regions.length;
   useEffect(()=>{ if(!notice) return; const timer=setTimeout(()=>setNotice(''),2200); return ()=>clearTimeout(timer); },[notice]);
   const persist=(next:string[])=>{
     try { saveProgress(art.id,next); setSaveError(false); }
     catch { setSaveError(true); }
   };
-  const paint=(id:string)=>{
+  const paint=(id:string, event: GestureResponderEvent)=>{
     const region=art.regions.find(r=>r.id===id);
-    if(!region || filled.includes(id)) return;
+    if(!region || painted.current.includes(id)) return;
     if(region.color!==selected) {setNotice(`Choose color ${region.color} for this area`); return;}
-    const next=[...filled,id];
+    if (!reduceMotion) {
+      const { pageX: tapX, pageY: tapY } = event.nativeEvent;
+      setReveals((current) => ({
+        ...current,
+        [id]: {
+          measureTap: (size, callback) => {
+            canvas.current?.measure((_x, _y, width, height, left, top) => {
+              const x = (tapX - left) * size / width;
+              const y = (tapY - top) * size / height;
+              if (x >= 0 && x <= size && y >= 0 && y <= size) callback({ x, y });
+            });
+          },
+        },
+      }));
+    }
+    const next=[...painted.current,id];
+    painted.current = next;
     setFilled(next); persist(next); setHint(undefined);
     void Haptics.selectionAsync().catch(()=>{});
     if(!art.regions.some(r=>r.color===selected&&!next.includes(r.id))) {
@@ -43,13 +73,24 @@ function Coloring({art}: {art:NumberArt}) {
       if(nextColor) setSelected(nextColor);
     }
   };
-  const reset=()=>Alert.alert('Start this picture again?','Your saved colors for this picture will be cleared.',[{text:'Keep coloring',style:'cancel'},{text:'Start again',style:'destructive',onPress:()=>{setFilled([]);setSelected(1);setHint(undefined);persist([]);}}]);
+  const reset=()=>Alert.alert('Start this picture again?','Your saved colors for this picture will be cleared.',[{text:'Keep coloring',style:'cancel'},{text:'Start again',style:'destructive',onPress:()=>{
+    painted.current = [];
+    setReveals({});
+    setFilled([]);
+    setSelected(1);
+    setHint(undefined);
+    persist([]);
+  }}]);
   return <SafeAreaView style={s.screen}>
     <View style={s.header}><Pressable accessibilityLabel="Back to gallery" onPress={()=>router.back()} style={s.icon}><Ionicons name="chevron-back" size={23} color="#625C72"/></Pressable><View style={{alignItems:'center'}}><Text style={s.title}>{art.title}</Text><Text style={s.meta}>{complete?'A little masterpiece, made by you':`${filled.length} of ${art.regions.length} areas colored`}</Text></View><Pressable accessibilityLabel="Restart picture" onPress={reset} style={s.icon}><Ionicons name="refresh-outline" size={20} color="#625C72"/></Pressable></View>
     <View style={s.track}><View style={[s.fill,{width:`${filled.length/art.regions.length*100}%`}]}/></View>
     <View style={s.canvasArea}>
       <ScrollView style={{flex:1}} contentContainerStyle={{flexGrow:1,justifyContent:'center'}} maximumZoomScale={3} minimumZoomScale={1} bouncesZoom centerContent>
-        <ScrollView horizontal contentContainerStyle={{flexGrow:1,justifyContent:'center'}}><View style={{width:320*zoom,height:320*zoom,margin:12,backgroundColor:'white',borderRadius:10,overflow:'hidden'}}><Artwork art={art} filled={filled} selected={complete?undefined:selected} hint={hint} onRegion={paint}/></View></ScrollView>
+        <ScrollView horizontal contentContainerStyle={{flexGrow:1,justifyContent:'center'}}>
+          <View ref={canvas} collapsable={false} style={{width:320*zoom,height:320*zoom,margin:12,backgroundColor:'white',borderRadius:10,overflow:'hidden'}}>
+            <Artwork art={art} filled={filled} selected={complete?undefined:selected} hint={hint} onRegion={paint} reveals={reveals} onRevealEnd={finishReveal} />
+          </View>
+        </ScrollView>
       </ScrollView>
       <View style={s.tools}><Pressable accessibilityLabel="Zoom out" onPress={()=>setZoom(v=>Math.max(0.8,v-0.4))} style={s.icon}><Ionicons name="remove" size={21} color="#625C72"/></Pressable><Text style={s.meta}>{Math.round(zoom*100)}%</Text><Pressable accessibilityLabel="Zoom in" onPress={()=>setZoom(v=>Math.min(3,v+0.4))} style={s.icon}><Ionicons name="add" size={21} color="#625C72"/></Pressable><Pressable accessibilityLabel="Find a matching region" disabled={complete} onPress={()=>{const region=art.regions.find(r=>r.color===selected&&!filled.includes(r.id));if(region){setHint(region.id);setNotice('Tap where the hand is pointing');}}} style={s.hint}><Ionicons name="bulb-outline" size={18} color="#8C7447"/><Text style={{color:'#8C7447',fontSize:11}}>Hint</Text></Pressable></View>
     </View>

@@ -49,8 +49,8 @@ export const OnboardingHeader = ({ progress, onSkip }: Props) => {
     <View>
       {/* Skip Button - Top Right */}
       <View className="px-6 flex-row justify-end mt-2">
-        <TouchableOpacity activeOpacity={0.7} onPress={onSkip}>
-          <Text className="text-[#A0A0A0] font-poppins text-[15px]">Skip</Text>
+        <TouchableOpacity accessibilityRole="button" activeOpacity={0.7} onPress={onSkip}>
+          <Text className="text-[#666666] font-poppins text-[15px]">Skip</Text>
         </TouchableOpacity>
       </View>
 
