@@ -25,6 +25,21 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Manage the coloring catalog
+
+Use the Supabase Table Editor in the **ColorByNumber** project to manage Canvas and onboarding content.
+
+- Use `catalog_categories` for labels, thumbnails, and display order.
+- Use `catalog_drawings` for each drawing's title, main category, palette, and colorable regions. Canvas shows the newest drawings first and uses `sort_order` when drawings have the same `added_at` timestamp. The Popular Picture card shows the drawing with the most completions, with the newest `added_at` breaking ties.
+- Use `catalog_drawing_categories` to list a drawing under additional category filters.
+- Upload images to the `color-catalog` Storage bucket. Enter the path inside the bucket in `image_path` or `outline_path`. Use a new path when replacing an image so devices fetch the update.
+
+Keep drawing and region IDs stable to preserve saved coloring progress. A region has `id`, `path`, `color`, `x`, `y`, and optional `r` fields. `color` is a one-based index into the palette. For new drawings, use an existing drawing as a template for the JSON fields.
+
+Supabase assigns `added_at` when a drawing is created. Each app installation can add one completion per drawing. Saved completions sync when that installation next loads the catalog online.
+
+Turn off `is_published` to remove an item from Canvas. Pull down on Canvas to fetch changes immediately. The first catalog load requires a connection. The app keeps downloaded catalog metadata for offline use and loads category images and drawing outlines from Storage.
+
 ## Get a fresh project
 
 When you're ready, run:

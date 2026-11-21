@@ -95,6 +95,8 @@ PODS:
   - ExpoRouter (55.0.7):
     - ExpoModulesCore
     - RNScreens
+  - ExpoSharing (55.0.25):
+    - ExpoModulesCore
   - ExpoSplashScreen (55.0.12):
     - ExpoModulesCore
   - ExpoStoreReview (55.0.9):
@@ -2370,6 +2372,7 @@ DEPENDENCIES:
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - ExpoModulesJSI (from `../node_modules/expo-modules-core`)
   - ExpoRouter (from `../node_modules/expo-router/ios`)
+  - ExpoSharing (from `../node_modules/expo-sharing/ios`)
   - ExpoSplashScreen (from `../node_modules/expo-splash-screen/ios`)
   - ExpoStoreReview (from `../node_modules/expo-store-review/ios`)
   - ExpoSymbols (from `../node_modules/expo-symbols/ios`)
@@ -2517,6 +2520,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-modules-core"
   ExpoRouter:
     :path: "../node_modules/expo-router/ios"
+  ExpoSharing:
+    :path: "../node_modules/expo-sharing/ios"
   ExpoSplashScreen:
     :path: "../node_modules/expo-splash-screen/ios"
   ExpoStoreReview:
@@ -2725,6 +2730,7 @@ SPEC CHECKSUMS:
   ExpoModulesCore: 0c1f55903cbfd9c58cd45f270e9fd6ab63c81f54
   ExpoModulesJSI: de2f4c13ffbf3c92654be2f237d71700bb702514
   ExpoRouter: b87682e8d245c95da516dc3ce603b15fbdf1070e
+  ExpoSharing: 3817158b892bbdefa4f3c21a58004963b8b89289
   ExpoSplashScreen: bc106fb42e43d64730f02af700beb600aca7147a
   ExpoStoreReview: b496682291106067cfb42c5987b84a780046468c
   ExpoSymbols: 0e00156bc2d2118be6838ae4755ceaa2bf00afe2

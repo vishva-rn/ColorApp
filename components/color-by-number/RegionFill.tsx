@@ -22,9 +22,10 @@ export type FillRevealEnd = (regionId: string, reveal: FillReveal) => void;
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-export default function RegionFill({ region, color, size, reveal, onEnd }: {
+export default function RegionFill({ region, color, gradientId, size, reveal, onEnd }: {
   region: ArtRegion;
   color: string;
+  gradientId?: string;
   size: number;
   reveal: FillReveal;
   onEnd: FillRevealEnd | undefined;
@@ -69,6 +70,19 @@ export default function RegionFill({ region, color, size, reveal, onEnd }: {
       cancelAnimation(radius);
     };
   }, [center, onEnd, radius, region, reveal, size]);
+
+  if (gradientId) {
+    return (
+      <G pointerEvents="none">
+        <Defs>
+          <ClipPath id={clipId}>
+            <AnimatedCircle animatedProps={animatedProps} />
+          </ClipPath>
+        </Defs>
+        <Path d={region.path} fill={`url(#${gradientId})`} fillRule="evenodd" clipPath={`url(#${clipId})`} />
+      </G>
+    );
+  }
 
   return (
     <G pointerEvents="none">

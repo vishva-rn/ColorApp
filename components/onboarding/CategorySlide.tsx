@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import MandalaSvg from '@/assets/images/svgicons/mandala.svg';
-import { ART_CATEGORIES } from '@/lib/art-categories';
+import { refreshColorCatalog, useColorCatalog } from '@/lib/color-catalog';
 
 import { ArtSelectionOption } from './ArtSelectionOption';
 import { OnboardingHeader } from './OnboardingHeader';
@@ -15,32 +14,15 @@ interface Props {
   onSelectCategory: (value: string) => void;
 }
 
-const ORIGINAL_CATEGORIES = [
-  { id: 'people', label: 'People', image: require('../../assets/images/svgicons/people.png') },
-  { id: 'animal', label: 'Animal', image: require('../../assets/images/svgicons/animal.png') },
-  { id: 'nature', label: 'Nature', image: require('../../assets/images/svgicons/nature.png') },
-  { id: 'places', label: 'Places', image: require('../../assets/images/svgicons/places.png') },
-  { id: 'flowers', label: 'Flowers', image: require('../../assets/images/svgicons/flowers.png') },
-  { id: 'food', label: 'Food', image: require('../../assets/images/svgicons/food.png') },
-  { id: 'cute', label: 'Cute', image: require('../../assets/images/svgicons/cute.png') },
-  { id: 'simple', label: 'Simple', image: require('../../assets/images/svgicons/simple.png') },
-  { id: 'mandalas', label: 'Mandalas', image: MandalaSvg },
-  { id: 'comics', label: 'Comics', image: require('../../assets/images/svgicons/comics.png') },
-];
-
-const originalCategoryIds = new Set(ORIGINAL_CATEGORIES.map(({ id }) => id === 'animal' ? 'animals' : id));
-const categories = [
-  ...ORIGINAL_CATEGORIES.map((category) => ({ ...category, stackedArtwork: false })),
-  ...ART_CATEGORIES
-    .filter(({ id }) => !originalCategoryIds.has(id))
-    .map((category) => ({ ...category, stackedArtwork: true })),
-];
-
 export default function CategorySlide({ onNext, onSkip, onSelectCategory }: Props) {
-  const [selected, setSelected] = useState('people');
+  const { status, categories } = useColorCatalog();
+  const [selectedId, setSelectedId] = useState<string>();
+  const selected = categories.find((category) => category.id === selectedId)
+    ?? categories.find((category) => category.id === 'people')
+    ?? categories[0];
 
   function handleNext() {
-    onSelectCategory(selected);
+    if (selected) onSelectCategory(selected.id);
     onNext();
   }
 
@@ -59,15 +41,24 @@ export default function CategorySlide({ onNext, onSkip, onSelectCategory }: Prop
           </Text>
         </View>
 
+        {status === 'loading' && <ActivityIndicator accessibilityLabel="Loading categories" className="mt-8" />}
+        {status === 'unavailable' && (
+          <View className="items-center gap-3 mt-8">
+            <Text>Couldn’t load categories</Text>
+            <Pressable accessibilityRole="button" onPress={() => void refreshColorCatalog(true)}>
+              <Text className="font-poppins-semibold">Try again</Text>
+            </Pressable>
+          </View>
+        )}
         <View className="flex-row flex-wrap px-4 mt-8" style={{ columnGap: '1.75%' }}>
-          {categories.map(({ id, label, image, stackedArtwork }) => (
+          {categories.map(({ id, label, image }) => (
             <ArtSelectionOption
               key={id}
               label={label}
-              isSelected={selected === id}
-              onPress={() => setSelected(id)}
+              isSelected={selected?.id === id}
+              onPress={() => setSelectedId(id)}
               SvgImage={image}
-              stackedArtwork={stackedArtwork}
+              stackedArtwork
               compact
             />
           ))}

@@ -1,8 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Image, View, type ImageSourcePropType } from 'react-native';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Animated, Easing, View } from 'react-native';
+import { Image } from 'expo-image';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
+import Svg, { Defs, G, Path, Text as SvgText } from 'react-native-svg';
 import type { ArtworkProps, RegionPressProps } from './Artwork';
+import PaletteGradient from './PaletteGradient';
 import RegionFill from './RegionFill';
 
 
@@ -59,34 +61,67 @@ function HintHand({cx, cy, box}: {cx: number; cy: number; box: number}) {
  *  - the number sits at the deepest point inside each region, sized so it never leaves the region
  * Same props as <Artwork/>, so the screens that use it need no new logic.
  */
-export default function PageArtwork({art, filled=[], preview=false, outlineOnly=false, selected, hint, onRegion, reveals, onRevealEnd}: ArtworkProps) {
+export default function PageArtwork({art, filled=[], preview=false, outlineOnly=false, hideNumbers=false, selected, hint, onRegion, reveals, onRevealEnd, onOutlineSettled}: ArtworkProps) {
   const size = art.size ?? 1024;
+  const gradientPrefix = `page-${useId().replace(/[^\w-]/g, '')}`;
   const [box, setBox] = useState(0);
+  const [outlineFailed, setOutlineFailed] = useState(false);
+  const [outlineDisplayed, setOutlineDisplayed] = useState(false);
+  const painted = new Set(filled);
   const hintRegion = hint ? art.regions.find(r => r.id === hint) : undefined;
-  // Home tiles: just the black line art on white. No colour, no numbers, not tappable.
+  const outline = art.outline && !outlineFailed ? (
+    <Image
+      source={art.outline}
+      cachePolicy="memory"
+      contentFit="fill"
+      onLoad={onOutlineSettled}
+      onDisplay={outlineOnly ? () => setOutlineDisplayed(true) : undefined}
+      onError={() => {
+        setOutlineFailed(true);
+        onOutlineSettled?.();
+      }}
+      style={{ width: '100%', height: '100%' }}
+    />
+  ) : null;
+  // Use the region boundaries until the outline image is visible.
   if (outlineOnly) return <View pointerEvents="none" style={{width:'100%',height:'100%',backgroundColor:'#FFFFFF'}}>
-    {art.outline!=null && <Image source={art.outline as ImageSourcePropType} resizeMode="stretch" style={{width:'100%',height:'100%'}}/>}
+    {(!outlineDisplayed || !outline) && (
+      <Svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`}>
+        {art.regions.map((region) => (
+          <Path key={region.id} d={region.path} fill="none" stroke="#332D39" strokeWidth={size / 400} />
+        ))}
+      </Svg>
+    )}
+    {outline && (
+      <View style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>{outline}</View>
+    )}
   </View>;
   return <View onLayout={e=>setBox(e.nativeEvent.layout.width)} style={{width:'100%',height:'100%',backgroundColor:'#FFFFFF'}}>
     <Svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`}>
+      {art.gradients && <Defs>{art.gradients.map((gradient, index) => (
+        <PaletteGradient key={index} id={`${gradientPrefix}-${index}`} color={art.palette[index]} gradient={gradient} />
+      ))}</Defs>}
       {art.regions.map(region=>{
         const reveal = reveals?.[region.id];
-        const done = preview || (filled.includes(region.id) && !reveal);
-        const fill = done ? art.palette[region.color-1]
+        const done = preview || (painted.has(region.id) && !reveal);
+        const index = region.color - 1;
+        const gradientId = art.gradients?.[index] ? `${gradientPrefix}-${index}` : undefined;
+        const color = art.palette[index];
+        const fill = done ? (gradientId ? `url(#${gradientId})` : color)
           : hint===region.id ? '#F9DEA5'
           : selected===region.color ? '#DCE0F5' : '#FFFFFF';
         return <G<RegionPressProps> key={region.id} onPress={onRegion ? (event) => onRegion(region.id, event) : undefined}>
-          <Path d={region.path} fill={fill} fillRule="evenodd"/>
-          {reveal && <RegionFill region={region} color={art.palette[region.color - 1]} size={size} reveal={reveal} onEnd={onRevealEnd} />}
+          <Path d={region.path} fill={fill} fillRule="evenodd" stroke={outlineFailed ? '#332D39' : undefined} strokeWidth={size / 400} />
+          {reveal && <RegionFill region={region} color={color} gradientId={gradientId} size={size} reveal={reveal} onEnd={onRevealEnd} />}
         </G>;
       })}
     </Svg>
-    {art.outline!=null && <View pointerEvents="none" style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
-      <Image source={art.outline as ImageSourcePropType} resizeMode="stretch" style={{width:'100%',height:'100%'}}/>
+    {outline && <View pointerEvents="none" style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
+      {outline}
     </View>}
-    {!preview && <View pointerEvents="none" style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
+    {!preview && !hideNumbers && <View pointerEvents="none" style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
       <Svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`}>
-        {art.regions.filter(r=>!filled.includes(r.id) && (r.r ?? 0)>=8).map(region=>{
+        {art.regions.filter(r=>!painted.has(r.id) && (r.r ?? 0)>=8).map(region=>{
           const fs = Math.max(14, Math.min(34, (region.r ?? 10) * 1.15));
           return <SvgText key={region.id} x={region.x} y={region.y} dy={fs*0.35} textAnchor="middle"
             fontSize={fs} fontWeight="600" fill={region.color===selected ? '#3F37A0' : '#6F6C78'}>{region.color}</SvgText>;

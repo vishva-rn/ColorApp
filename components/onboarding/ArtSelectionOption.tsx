@@ -57,13 +57,13 @@ export const ArtSelectionOption = ({
           <View style={styles.artworkStack}>
             <View style={[styles.artworkCard, styles.paperBacking]} />
             <View style={[styles.artworkCard, styles.artworkFace]}>
-              <Image source={SvgImage} style={StyleSheet.absoluteFill} contentFit="cover" />
+              <Image cachePolicy="memory" source={SvgImage} style={StyleSheet.absoluteFill} contentFit="cover" />
             </View>
           </View>
         ) : typeof SvgImage === 'function' ? (
           <SvgImage width="100%" height="100%" />
         ) : (
-          <Image source={SvgImage} style={{ width: '100%', height: '100%' }} contentFit="contain" />
+          <Image cachePolicy="memory" source={SvgImage} style={{ width: '100%', height: '100%' }} contentFit="contain" />
         )}
       </View>
 
